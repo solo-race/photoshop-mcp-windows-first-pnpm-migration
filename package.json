@@ -1,0 +1,58 @@
+{
+  "name": "photoshop-mcp-windows-first",
+  "version": "0.1.2",
+  "description": "Windows-first Photoshop MCP server with structured state, real smoke coverage, and a bundled Codex image-editing skill",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "photoshop-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "test": "npm run build && node --test tests/**/*.test.mjs",
+    "test:real": "npm run build && node scripts/real-tool-smoke.mjs",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "photoshop",
+    "adobe",
+    "automation",
+    "ai",
+    "model-context-protocol",
+    "image-editing"
+  ],
+  "author": "rookietopred02-gif",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rookietopred02-gif/photoshop-mcp-windows-first.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rookietopred02-gif/photoshop-mcp-windows-first/issues"
+  },
+  "homepage": "https://github.com/rookietopred02-gif/photoshop-mcp-windows-first",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "mcpName": "io.github.rookietopred02-gif/photoshop-mcp-windows-first",
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  }
+}

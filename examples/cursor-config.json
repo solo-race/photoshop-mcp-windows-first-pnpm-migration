@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "photoshop": {
+      "command": "node",
+      "args": ["C:/path/to/photoshop-mcp-windows-first/dist/index.js"],
+      "env": {
+        "PHOTOSHOP_PATH": "C:/Program Files/Adobe/Adobe Photoshop 2024/Photoshop.exe",
+        "LOG_LEVEL": "1"
+      }
+    }
+  }
+}

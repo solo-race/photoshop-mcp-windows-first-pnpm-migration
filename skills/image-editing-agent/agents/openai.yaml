@@ -1,0 +1,3 @@
+interface:
+  display_name: "Image Editing Agent"
+  short_description: "windows-first photoshop-mcp workflow for faithful edits, checkpoints, targeting, and validation"
