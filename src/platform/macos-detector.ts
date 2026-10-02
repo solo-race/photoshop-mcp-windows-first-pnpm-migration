@@ -19,7 +19,7 @@ export class MacOSDetector {
     // Try environment variable first
     const envPath = process.env.PHOTOSHOP_PATH;
     if (envPath) {
-      this.logger.debug(`Using environment variable: ${envPath}`);
+      this.logger.debug('Using configured Photoshop path');
       const info = await this.checkPath(envPath);
       if (info) return info;
     }
@@ -101,7 +101,7 @@ export class MacOSDetector {
       // Extract app name from path
       const appName = cleanPath.split('/').pop()?.replace('.app', '') || 'Adobe Photoshop 2025';
 
-      this.logger.info(`Found Photoshop at: ${cleanPath}`);
+      this.logger.info('Found Photoshop installation');
 
       return {
         version,

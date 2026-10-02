@@ -1178,25 +1178,6 @@ export const ExtendScriptSnippets = {
   `,
 
   /**
-   * Play an action from Actions palette
-   */
-  playAction: (actionName: string, actionSetName: string) => `
-    app.doAction(${scriptValue(actionName)}, ${scriptValue(actionSetName)});
-    
-    return { 
-      action: ${scriptValue(actionName)},
-      set: ${scriptValue(actionSetName)}
-    };
-  `,
-
-  /**
-   * Execute custom JavaScript code
-   */
-  executeCustomScript: (code: string) => `
-    ${code}
-  `,
-
-  /**
    * Rasterize active layer
    */
   rasterizeLayer: () => `
@@ -1347,7 +1328,7 @@ export const ExtendScriptSnippets = {
   /**
    * Move layer to specific position (reorder)
    */
-  moveLayerToPosition: (targetLayerName: string, position: string) => `
+  moveLayerToPosition: (targetLayerId: number, position: string) => `
     ${getContextInfo}
     
     if (app.documents.length === 0) {
@@ -1359,14 +1340,14 @@ export const ExtendScriptSnippets = {
     // Find target layer
     var targetLayer = null;
     for (var i = 0; i < doc.layers.length; i++) {
-      if (doc.layers[i].name === ${scriptValue(targetLayerName)}) {
+      if (doc.layers[i].id === ${targetLayerId}) {
         targetLayer = doc.layers[i];
         break;
       }
     }
     
     if (!targetLayer) {
-      throw new Error('Target layer not found: ' + ${scriptValue(targetLayerName)});
+      throw new Error('Target layer not found: ' + ${targetLayerId});
     }
 
     if (activeLayer === targetLayer) {

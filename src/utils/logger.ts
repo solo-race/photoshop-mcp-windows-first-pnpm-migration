@@ -33,20 +33,9 @@ export class Logger {
     process.stderr.write(logMessage + '\n');
   }
 
-  private formatArg(arg: unknown): string {
-    if (arg instanceof Error) {
-      return JSON.stringify({
-        name: arg.name,
-        message: arg.message,
-        stack: arg.stack,
-      });
-    }
-
-    if (typeof arg === 'object') {
-      return JSON.stringify(arg);
-    }
-
-    return String(arg);
+  private formatArg(_arg: unknown): string {
+    // Tool errors may contain local paths, text layers, script source or image data.
+    return '[details omitted]';
   }
 
   debug(message: string, ...args: unknown[]) {

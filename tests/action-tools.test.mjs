@@ -1,29 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseActionListResponse } from '../dist/tools/action-tools.js';
+import { ToolRegistry } from '../dist/core/tool-registry.js';
+import { disabledTools } from '../dist/security/tool-policy.js';
 
-test('parseActionListResponse parses Photoshop action records', () => {
-  const parsed = parseActionListResponse(
-    'Set A||Action One||1||1@@@Set B||Action Two||2||3'
-  );
-
-  assert.deepEqual(parsed, [
-    {
-      actionSetName: 'Set A',
-      actionName: 'Action One',
-      actionSetIndex: 1,
-      actionIndex: 1,
-    },
-    {
-      actionSetName: 'Set B',
-      actionName: 'Action Two',
-      actionSetIndex: 2,
-      actionIndex: 3,
-    },
-  ]);
-});
-
-test('parseActionListResponse ignores empty records', () => {
-  const parsed = parseActionListResponse('@@@');
-  assert.deepEqual(parsed, []);
+test('removed tool names cannot be registered or invoked', async () => {
+  const registry = new ToolRegistry();
+  for (const name of disabledTools) {
+    assert.throws(() => registry.register(name, {tool: {name, inputSchema: {type: 'object'}}, handler: async () => ({content: []})}), /TOOL_DISABLED/);
+    await assert.rejects(registry.execute(name, {}), /TOOL_DISABLED/);
+  }
+  assert.deepEqual(registry.list(), []);
 });

@@ -1,7 +1,7 @@
 {
   "name": "photoshop-mcp-windows-first",
   "version": "0.1.2",
-  "description": "Windows-first Photoshop MCP server with structured state, real smoke coverage, and a bundled Codex image-editing skill",
+  "description": "Project-scoped Photoshop MCP with restricted tools and local-only previews",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -9,14 +9,12 @@
   },
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', {recursive:true, force:true})\" && tsc",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
-    "test": "npm run build && node --test tests/**/*.test.mjs",
-    "test:real": "npm run build && node scripts/real-tool-smoke.mjs",
+    "test": "pnpm run build && node --test tests/*.test.mjs",
     "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\"",
-    "prepare": "npm run build"
+    "format:check": "prettier --check \"src/**/*.ts\""
   },
   "keywords": [
     "mcp",
@@ -31,28 +29,27 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rookietopred02-gif/photoshop-mcp-windows-first.git"
+    "url": "git+https://github.com/solo-race/photoshop-mcp-windows-first-pnpm-migration.git"
   },
   "bugs": {
-    "url": "https://github.com/rookietopred02-gif/photoshop-mcp-windows-first/issues"
+    "url": "https://github.com/solo-race/photoshop-mcp-windows-first-pnpm-migration/issues"
   },
-  "homepage": "https://github.com/rookietopred02-gif/photoshop-mcp-windows-first",
+  "homepage": "https://github.com/solo-race/photoshop-mcp-windows-first-pnpm-migration",
   "engines": {
     "node": ">=18.0.0"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4"
   },
-  "mcpName": "io.github.rookietopred02-gif/photoshop-mcp-windows-first",
   "devDependencies": {
+    "@eslint/js": "9.39.4",
     "@types/node": "^22.10.5",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",
     "eslint": "^9.18.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3"
-  }
+  },
+  "packageManager": "pnpm@10.18.3",
+  "private": true
 }

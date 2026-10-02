@@ -1,3 +1,4 @@
 interface:
-  display_name: "Image Editing Agent"
-  short_description: "windows-first photoshop-mcp workflow for faithful edits, checkpoints, targeting, and validation"
+  display_name: "Photoshop Operations"
+  short_description: "Project-scoped local Photoshop operations"
+  default_prompt: "Inspect actual MCP capabilities and registered project/document IDs before acting. Follow the user-maintained task grant and project art contract. No raw scripts, UI recovery, automatic report files, or image uploads."
