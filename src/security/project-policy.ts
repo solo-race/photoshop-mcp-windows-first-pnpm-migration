@@ -40,10 +40,10 @@ export function matchesGrantedPath(
   root: string, grants: string[], candidate: string, flavor = path
 ): boolean {
   return inside(root, candidate, flavor) && grants.some((p) =>
-    samePath(flavor.join(root, relativePath(p)), candidate, flavor)
+    samePath(flavor.join(root, relativePath(p, flavor)), candidate, flavor)
   );
 }
-export function relativePath(value: unknown): string {
+export function relativePath(value: unknown, flavor = path): string {
   if (
     typeof value !== 'string' ||
     !value ||
@@ -67,7 +67,7 @@ export function relativePath(value: unknown): string {
     )
   )
     throw new Error('PATH_DENIED');
-  return parts.join(path.sep);
+  return parts.join(flavor.sep);
 }
 function strings(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
