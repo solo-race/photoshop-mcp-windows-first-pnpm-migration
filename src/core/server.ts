@@ -25,7 +25,7 @@ import { createSelectionTools } from '../tools/selection-tools.js';
 import { createLayerOrderingTools } from '../tools/layer-ordering-tools.js';
 import { createAdvancedTools } from '../tools/advanced-tools.js';
 
-import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -150,11 +150,48 @@ export class PhotoshopMCPServer {
     });
   }
 
+  private async acquireWriterLock(): Promise<void> {
+    try {
+      await mkdir(this.writerLock, { mode: 0o700 });
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') {
+        throw new Error('WRITER_LOCK_ACQUIRE_FAILED');
+      }
+    }
+
+    let pidText: string;
+    try {
+      pidText = (await readFile(join(this.writerLock, 'pid'), 'utf8')).trim();
+    } catch {
+      throw new Error('WRITER_LOCK_UNCERTAIN');
+    }
+    const pid = Number(pidText);
+    if (!/^[1-9][0-9]*$/.test(pidText) || !Number.isSafeInteger(pid)) {
+      throw new Error('WRITER_LOCK_UNCERTAIN');
+    }
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ESRCH') {
+        throw new Error('WRITER_LOCK_UNCERTAIN');
+      }
+      // Only a confirmed dead writer permits deleting this exact lock and one retry.
+      try {
+        await rm(this.writerLock, { recursive: true, force: true });
+        await mkdir(this.writerLock, { mode: 0o700 });
+      } catch {
+        throw new Error('WRITER_LOCK_RECOVERY_FAILED');
+      }
+      return;
+    }
+    throw new Error('WRITER_LOCK_ACTIVE');
+  }
+
   async start(): Promise<void> {
     this.registerTools(await ProjectPolicy.load());
     this.setupHandlers();
-    // Fail closed on stale locks. Never kill another process or automatically take over.
-    await mkdir(this.writerLock, { mode: 0o700 });
+    await this.acquireWriterLock();
     this.ownsLock = true;
     process.once('exit', () => {
       if (this.ownsLock) rmSync(this.writerLock, { recursive: true, force: true });
@@ -163,10 +200,14 @@ export class PhotoshopMCPServer {
       void this.stop();
     });
     try {
-      await writeFile(join(this.writerLock, 'pid'), String(process.pid), {
-        flag: 'wx',
-        mode: 0o600,
-      });
+      try {
+        await writeFile(join(this.writerLock, 'pid'), String(process.pid), {
+          flag: 'wx',
+          mode: 0o600,
+        });
+      } catch {
+        throw new Error('WRITER_LOCK_PID_WRITE_FAILED');
+      }
       this.server.onclose = () => {
         void this.stop();
       };

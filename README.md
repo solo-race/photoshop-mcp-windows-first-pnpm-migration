@@ -88,8 +88,13 @@ Requests are serialized within the server. Document/layer ID and expected saved
 path are rechecked in the **same Photoshop script** that performs the operation.
 Paths and grants are rechecked before COM dispatch. A per-temporary-directory exclusive writer lock rejects a second MCP process.
 Use one host and one OS user/session for Photoshop; different temporary directories
-or other automation software are outside that coordination boundary. A crash may
-leave a stale lock; verify its recorded PID is gone before manually removing it. These checks are
+or other automation software are outside that coordination boundary. On startup,
+a stale lock is removed automatically only when its valid recorded PID probe
+returns `ESRCH`; the server then attempts to acquire the lock once. A live PID,
+missing or invalid PID, or uncertain probe result rejects startup and preserves
+the lock. Recovery failure also rejects startup. Startup failures report a fixed
+`WRITER_LOCK_*` diagnostic or the generic `STARTUP_FAILED` code on stderr.
+These checks are
 not an OS sandbox against arbitrary same-user processes, malicious plugins,
 Photoshop file-format exploits, or hostile filesystem races.
 

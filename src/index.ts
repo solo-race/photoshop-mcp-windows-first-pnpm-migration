@@ -4,6 +4,13 @@ import { PhotoshopMCPServer } from './core/server.js';
 import { Logger } from './utils/logger.js';
 
 const logger = new Logger('Main');
+const startupErrorCodes = new Set([
+  'WRITER_LOCK_ACTIVE',
+  'WRITER_LOCK_UNCERTAIN',
+  'WRITER_LOCK_ACQUIRE_FAILED',
+  'WRITER_LOCK_RECOVERY_FAILED',
+  'WRITER_LOCK_PID_WRITE_FAILED',
+]);
 
 async function main() {
   try {
@@ -14,7 +21,9 @@ async function main() {
     
     logger.info('Photoshop MCP Server is running');
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    const message = error instanceof Error ? error.message : '';
+    const code = startupErrorCodes.has(message) ? message : 'STARTUP_FAILED';
+    logger.error(`Failed to start server: ${code}`);
     process.exit(1);
   }
 }
