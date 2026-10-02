@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "projects": [
+    {
+      "id": "example-art",
+      "root": "C:/Projects/example-art",
+      "read_paths": ["masters", "work", "exports", "previews"],
+      "write_paths": ["work", "exports", "previews"],
+      "preview_path": "previews",
+      "allow_overwrite": false,
+      "allow_destructive": false,
+      "allow_ui_capture": false,
+      "preview_delivery": "local-only",
+      "cloud_recipients": [],
+      "tasks": []
+    }
+  ]
+}

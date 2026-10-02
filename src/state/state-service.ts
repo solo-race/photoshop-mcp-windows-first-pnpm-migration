@@ -147,19 +147,6 @@ export class PhotoshopStateService {
     );
   }
 
-  async executeRawScriptWithState(
-    code: string,
-    detail: ResponseDetail
-  ): Promise<Record<string, unknown>> {
-    const result = await this.connection.executeScript(code);
-    const state = await this.getState(detail);
-
-    return {
-      result,
-      state,
-    };
-  }
-
   async assertState(assertions: Record<string, unknown>): Promise<Record<string, unknown>> {
     const state = await this.getState(responseDetailFromArgs(assertions.responseDetail));
     const activeDocument = toPlainObject(state.activeDocument);

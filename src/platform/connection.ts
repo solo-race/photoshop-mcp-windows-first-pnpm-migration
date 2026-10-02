@@ -1,4 +1,13 @@
 import { platform } from 'os';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
+import { PhotoshopAPIFactory } from '../api/photoshop-api.js';
+import { toExtendScriptValue } from '../core/serializer.js';
+
+export interface ScriptScope {
+  documentId?: number; documentPath?: string; layerId?: number; recheck: () => Promise<void>;
+}
+
 import { Logger } from '../utils/logger.js';
 import { PhotoshopDetector } from './detector.js';
 import { ScriptExecutor } from './script-executor.js';
@@ -15,6 +24,10 @@ export interface PhotoshopInfo {
 }
 
 export class PhotoshopConnection {
+  private scope = new AsyncLocalStorage<ScriptScope>();
+  private faulted = false;
+  private epoch = randomUUID();
+  private epochInstalled = false;
   private logger: Logger;
   private detector: PhotoshopDetector;
   private executor: ScriptExecutor;
@@ -33,7 +46,12 @@ export class PhotoshopConnection {
       this.macosExecutor = new MacOSExecutor();
       this.executor = this.macosExecutor;
     } else {
-      throw new Error(`Unsupported platform: ${platformType}`);
+      // Offline policy/registry tests and stdio capability inspection are possible on Linux.
+      this.executor = {
+        execute: async () => { throw new Error('Photoshop execution requires Windows or macOS'); },
+        isPhotoshopRunning: async () => false,
+        launchPhotoshop: async () => { throw new Error('Automatic launch disabled'); },
+      };
     }
   }
 
@@ -111,6 +129,9 @@ export class PhotoshopConnection {
 
   async executeScript(script: string, timeout?: number): Promise<unknown> {
     try {
+      if (this.faulted) throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
+      const scope = this.scope.getStore();
+      if (scope) await scope.recheck();
       const detected = await this.ensureDetected();
 
       // Set app name for macOS executor
@@ -121,19 +142,20 @@ export class PhotoshopConnection {
       // Check if Photoshop is running, launch if needed
       const isRunning = await this.executor.isPhotoshopRunning();
       if (!isRunning) {
-        this.logger.info('Photoshop not running, launching...');
-        await this.executor.launchPhotoshop(detected.path);
+        throw new Error('Photoshop is not running. Open it manually; automatic launch is disabled.');
       }
 
       // Execute the script
-      const result = await this.executor.execute(script, timeout);
+      const guarded = scope ? this.guardScript(script, scope) : script;
+      const result = await this.executor.execute(guarded, timeout);
       this.photoshopInfo = {
         ...detected,
         isRunning: true,
       };
       return result;
     } catch (error) {
-      this.logger.error('Script execution failed:', error);
+      if (/timeout|limit/i.test(String(error))) this.faulted = true;
+      this.logger.error('Script execution failed');
       throw error;
     }
   }
@@ -143,24 +165,80 @@ export class PhotoshopConnection {
   }
 
   async ensurePhotoshopRunning(): Promise<void> {
-    const detected = await this.ensureDetected();
+    await this.ensureDetected();
 
     const isRunning = await this.executor.isPhotoshopRunning();
     if (!isRunning) {
-      this.logger.info('Launching Photoshop...');
-      await this.executor.launchPhotoshop(detected.path);
+      throw new Error('Automatic launch disabled. Open Photoshop manually.');
     }
   }
 
-  async getExecutionModesAvailable(): Promise<ExecutionMode[]> {
-    const modes: ExecutionMode[] = ['script'];
-    if (platform() === 'win32') {
-      modes.push('ui', 'auto');
-    } else {
-      modes.push('auto');
-    }
+  async getExecutionModesAvailable(): Promise<ExecutionMode[]> { return ['script']; }
 
-    return modes;
+  async withScope<T>(scope: ScriptScope, operation: () => Promise<T>): Promise<T> {
+    await this.ensureDetected();
+    return await this.scope.run(scope, operation);
+  }
+
+  /** Internal metadata only. Never forward this result to a client. */
+  async inspectDocuments(): Promise<{id: number; path: string | null}[]> {
+    await this.ensureDetected();
+    const api = await new PhotoshopAPIFactory(this).createAPI();
+    const result = await api.executeScript(`
+      var key = ${toExtendScriptValue('__mcp_' + this.epoch)};
+      ${this.epochInstalled ? "if ($.global[key] !== true) throw new Error('PHOTOSHOP_SESSION_CHANGED');" : '$.global[key] = true;'}
+      var records = [];
+      for (var i = 0; i < app.documents.length; i++) {
+        var d = app.documents[i]; var p = null;
+        try { p = d.fullName.fsName; } catch (_) {}
+        records.push({id: d.id, path: p});
+      }
+      return records;
+    `) as {id: number; path: string | null}[];
+    this.epochInstalled = true;
+    return result;
+  }
+
+  private guardScript(script: string, scope: ScriptScope): string {
+    if (scope.documentId === undefined) return `(function() {
+      if ($.global[${toExtendScriptValue('__mcp_' + this.epoch)}] !== true) throw new Error('PHOTOSHOP_SESSION_CHANGED');
+      var dialogs = app.displayDialogs;
+      try { app.displayDialogs = DialogModes.NO; return ${script} }
+      finally { app.displayDialogs = dialogs; }
+    })();`;
+    const expected = toExtendScriptValue(scope.documentPath ?? null);
+    // Selection and operation run in ONE Photoshop script. A user switching the
+    // active document between MCP calls cannot redirect the operation.
+    return `
+(function() {
+  if ($.global[${toExtendScriptValue('__mcp_' + this.epoch)}] !== true) throw new Error('PHOTOSHOP_SESSION_CHANGED');
+  var target = null;
+  for (var i = 0; i < app.documents.length; i++) {
+    if (app.documents[i].id === ${scope.documentId}) { target = app.documents[i]; break; }
+  }
+  if (!target) throw new Error('TARGET_DOCUMENT_CHANGED');
+  var actual = null;
+  try { actual = target.fullName.fsName; } catch (_) {}
+  var expected = ${expected};
+  if (expected === null ? actual !== null : (actual === null || ${process.platform === 'win32' ? 'new File(actual).fsName.toLowerCase() !== new File(expected).fsName.toLowerCase()' : 'new File(actual).fsName !== new File(expected).fsName'})) throw new Error('TARGET_PATH_CHANGED');
+  app.activeDocument = target;
+  ${scope.layerId === undefined ? '' : `
+  function findLayer(container, id) {
+    for (var j = 0; j < container.layers.length; j++) {
+      var layer = container.layers[j];
+      if (layer.id === id) return layer;
+      if (layer.typename === 'LayerSet') { var found = findLayer(layer, id); if (found) return found; }
+    }
+    return null;
+  }
+  var selected = findLayer(target, ${scope.layerId});
+  if (!selected) throw new Error('TARGET_LAYER_CHANGED');
+  target.activeLayer = selected;
+  `}
+  var dialogs = app.displayDialogs;
+  try { app.displayDialogs = DialogModes.NO; return ${script} }
+  finally { app.displayDialogs = dialogs; }
+})();`;
   }
 
   private async ensureDetected(): Promise<PhotoshopInfo> {

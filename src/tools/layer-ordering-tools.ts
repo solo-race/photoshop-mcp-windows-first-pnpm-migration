@@ -12,9 +12,9 @@ export function createLayerOrderingTools(connection: PhotoshopConnection): ToolD
         inputSchema: {
           type: 'object',
           properties: {
-            targetLayerName: {
-              type: 'string',
-              description: 'Name of the layer to move relative to',
+            targetLayerId: {
+              type: 'integer', minimum: 1, maximum: 2147483647,
+              description: 'ID of the layer to move relative to',
             },
             position: {
               type: 'string',
@@ -22,7 +22,7 @@ export function createLayerOrderingTools(connection: PhotoshopConnection): ToolD
               enum: ['ABOVE', 'BELOW', 'TOP', 'BOTTOM'],
             },
           },
-          required: ['targetLayerName', 'position'],
+          required: ['targetLayerId', 'position'],
         },
       },
       handler: async (args) => moveLayerToPosition(connection, args),
@@ -78,21 +78,21 @@ async function moveLayerToPosition(
   connection: PhotoshopConnection,
   args: Record<string, unknown>
 ): Promise<ToolResult> {
-  const targetLayerName = args.targetLayerName as string;
+  const targetLayerId = args.targetLayerId as number;
   const position = args.position as string;
 
   try {
     const apiFactory = new PhotoshopAPIFactory(connection);
     const api = await apiFactory.createAPI();
 
-    const script = ExtendScriptSnippets.moveLayerToPosition(targetLayerName, position);
+    const script = ExtendScriptSnippets.moveLayerToPosition(targetLayerId, position);
     const result = await api.executeScript(script);
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: `Layer moved ${position} "${targetLayerName}"\nResult: ${JSON.stringify(result)}`,
+          text: `Layer moved ${position} "${targetLayerId}"\nResult: ${JSON.stringify(result)}`,
         },
       ],
     };

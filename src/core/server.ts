@@ -8,9 +8,7 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { categorizeError } from './error-taxonomy.js';
 import { SERVER_NAME, SERVER_VERSION } from './constants.js';
-import { createEnvelope, createToolResult, buildExecutionInfo } from './result.js';
 import { Logger } from '../utils/logger.js';
 import { ToolRegistry } from './tool-registry.js';
 import { Session } from './session.js';
@@ -24,310 +22,178 @@ import { createFilterTools } from '../tools/filter-tools.js';
 import { createAdjustmentTools } from '../tools/adjustment-tools.js';
 import { createTextTools } from '../tools/text-tools.js';
 import { createSelectionTools } from '../tools/selection-tools.js';
-import { createActionTools } from '../tools/action-tools.js';
-import { createHistoryTools } from '../tools/history-tools.js';
 import { createLayerOrderingTools } from '../tools/layer-ordering-tools.js';
 import { createAdvancedTools } from '../tools/advanced-tools.js';
-import { PhotoshopResourceProvider } from '../resources/photoshop-resources.js';
-import { PhotoshopPromptProvider } from '../prompts/photoshop-prompts.js';
+
+import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ProjectPolicy } from '../security/project-policy.js';
+import { ToolPolicy } from '../security/tool-policy.js';
 
 export class PhotoshopMCPServer {
   private server: Server;
-  private logger: Logger;
-  private toolRegistry: ToolRegistry;
-  private session: Session;
-  private resourceProvider: PhotoshopResourceProvider;
-  private promptProvider: PhotoshopPromptProvider;
+  private logger = new Logger('PhotoshopMCPServer');
+  private session = new Session({ autoConnect: false });
+  private toolRegistry?: ToolRegistry;
+  private writerLock = join(tmpdir(), 'photoshop-mcp-single-writer');
+  private ownsLock = false;
+  private stopping?: Promise<void>;
 
   constructor() {
-    this.logger = new Logger('PhotoshopMCPServer');
-    this.toolRegistry = new ToolRegistry();
-    this.session = new Session();
-    const connection = this.session.getConnection();
-    this.resourceProvider = new PhotoshopResourceProvider(connection, this.session);
-    this.promptProvider = new PhotoshopPromptProvider(connection, this.session);
-
     this.server = new Server(
+      { name: SERVER_NAME, version: SERVER_VERSION },
       {
-        name: SERVER_NAME,
-        version: SERVER_VERSION,
-      },
-      {
-        capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {},
-        },
+        capabilities: { tools: {}, resources: {}, prompts: {} },
       }
     );
-
-    this.registerTools();
-    this.setupHandlers();
   }
 
-  private registerTools() {
-    // Register basic tools
-    this.toolRegistry.register('photoshop_ping', {
-      tool: {
-        name: 'photoshop_ping',
-        description: 'Test connection to Photoshop',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      handler: async () => await this.pingPhotoshop(),
-    });
-
-    this.toolRegistry.register('photoshop_get_version', {
-      tool: {
-        name: 'photoshop_get_version',
-        description: 'Get Photoshop version information',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      handler: async () => await this.getVersion(),
-    });
-
+  private registerTools(projects: ProjectPolicy): void {
     const connection = this.session.getConnection();
-    
-    const documentTools = createDocumentTools(connection);
-    documentTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
+    const registry = new ToolRegistry(new ToolPolicy(projects, connection));
+    this.toolRegistry = registry;
+    for (const name of ['photoshop_ping', 'photoshop_get_version']) {
+      registry.register(name, {
+        tool: {
+          name,
+          description:
+            'Read application version only. Does not launch Photoshop or inspect documents.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        handler: async () => {
+          const info = await connection.getVersionInfo();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  name: info.name,
+                  version: info.version,
+                  isRunning: info.isRunning,
+                  canExecuteScript: info.canExecuteScript,
+                }),
+              },
+            ],
+          };
+        },
+      });
+    }
+    registry.register('photoshop_get_capabilities', {
+      tool: {
+        name: 'photoshop_get_capabilities',
+        description: 'Inspect this runtime and registered project IDs without starting Photoshop.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      handler: async () => ({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              projects: projects.list(),
+              tools: registry.list().map((t) => t.name),
+              imageDelivery: 'local-only',
+              uiCapture: false,
+              rawScripts: false,
+              historyRecovery: 'disabled-unverified',
+              autoLaunch: false,
+            }),
+          },
+        ],
+      }),
     });
-
-    const layerTools = createLayerTools(connection);
-    layerTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const imageTools = createImageTools(connection);
-    imageTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const imagePlacementTools = createImagePlacementTools(connection);
-    imagePlacementTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const layerTransformTools = createLayerTransformTools(connection);
-    layerTransformTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const layerPropertiesTools = createLayerPropertiesTools(connection);
-    layerPropertiesTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const filterTools = createFilterTools(connection);
-    filterTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const adjustmentTools = createAdjustmentTools(connection);
-    adjustmentTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const textTools = createTextTools(connection);
-    textTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const selectionTools = createSelectionTools(connection);
-    selectionTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const actionTools = createActionTools(connection);
-    actionTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const historyTools = createHistoryTools(connection);
-    historyTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const layerOrderingTools = createLayerOrderingTools(connection);
-    layerOrderingTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    const advancedTools = createAdvancedTools(
-      connection,
-      this.session,
-      async (name, args) => await this.toolRegistry.execute(name, args)
-    );
-    advancedTools.forEach((tool) => {
-      this.toolRegistry.register(tool.tool.name, tool);
-    });
-
-    this.logger.info(`Registered ${this.toolRegistry.count()} tools`);
+    const groups = [
+      createDocumentTools(connection),
+      createLayerTools(connection),
+      createImageTools(connection),
+      createImagePlacementTools(connection),
+      createLayerTransformTools(connection),
+      createLayerPropertiesTools(connection),
+      createFilterTools(connection),
+      createAdjustmentTools(connection),
+      createTextTools(connection),
+      createSelectionTools(connection),
+      createLayerOrderingTools(connection),
+      createAdvancedTools(connection, (name, args) => registry.execute(name, args)),
+    ];
+    for (const tools of groups) for (const tool of tools) registry.register(tool.tool.name, tool);
   }
 
-  private setupHandlers() {
-    // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      this.logger.debug('Listing available tools');
-      return {
-        tools: this.toolRegistry.list(),
-      };
-    });
-
-    // Handle tool calls
+  private setupHandlers(): void {
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: this.toolRegistry!.list(),
+    }));
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      this.logger.debug(`Tool called: ${request.params.name}`);
-      
       try {
-        const args = (request.params.arguments as Record<string, unknown>) || {};
-        const result = await this.toolRegistry.execute(request.params.name, args);
-        
-        // Update session activity
-        this.session.updateActivity();
-
-        if (result.isError) {
-          this.session.recordError(
-            categorizeError(
-              result.content
-                .filter((block) => block.type === 'text')
-                .map((block) => ('text' in block ? block.text : ''))
-                .join('\n'),
-              request.params.name
-            )
-          );
-        }
-        
-        return result;
-      } catch (error) {
-        this.logger.error(`Tool execution failed: ${request.params.name}`, error);
-        const record = categorizeError(error, request.params.name);
-        this.session.recordError(record);
-        return createToolResult(
-          createEnvelope({
-            ok: false,
-            summary: `Tool execution failed: ${record.message}`,
-            data: {
-              error: record,
-            },
-            warnings: [],
-            context: {},
-            execution: buildExecutionInfo('auto', 'workflow', 0, false),
-            nextSuggestedActions: record.suggestedActions,
-          })
+        return await this.toolRegistry!.execute(
+          request.params.name,
+          request.params.arguments ?? {}
         );
+      } catch (error) {
+        // Do not echo input, paths, document titles, script source or stack traces.
+        const message = error instanceof Error ? error.message : '';
+        const safe = /^[A-Z_]+(?:: [a-zA-Z0-9_.]+)?$/.test(message)
+          ? message
+          : 'OPERATION_DENIED_OR_FAILED';
+        return { isError: true, content: [{ type: 'text', text: safe }] };
       }
     });
-
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      return await this.resourceProvider.list();
+    // Legacy resources/prompts had no project or document scope. No implicit active-document reads.
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
+    this.server.setRequestHandler(ReadResourceRequestSchema, async () => {
+      throw new Error('Use project-scoped tools');
     });
-
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      return await this.resourceProvider.read(request.params.uri);
-    });
-
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
-      return await this.promptProvider.list();
-    });
-
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      return await this.promptProvider.get(
-        request.params.name,
-        request.params.arguments as Record<string, string> | undefined
-      );
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
+    this.server.setRequestHandler(GetPromptRequestSchema, async () => {
+      throw new Error('Use project-scoped tools');
     });
   }
 
-  private async pingPhotoshop() {
-    const connection = this.session.getConnection();
-    const startedAt = Date.now();
-
+  async start(): Promise<void> {
+    this.registerTools(await ProjectPolicy.load());
+    this.setupHandlers();
+    // Fail closed on stale locks. Never kill another process or automatically take over.
+    await mkdir(this.writerLock, { mode: 0o700 });
+    this.ownsLock = true;
+    process.once('exit', () => {
+      if (this.ownsLock) rmSync(this.writerLock, { recursive: true, force: true });
+    });
+    process.stdin.once('end', () => {
+      void this.stop();
+    });
     try {
-      const info = await connection.getVersionInfo();
-      const envelope = createEnvelope({
-        ok: info.canExecuteScript,
-        summary: info.canExecuteScript
-          ? `Photoshop responded to a smoke script as ${info.name} ${info.version}.`
-          : `Photoshop was detected at ${info.detectedPath}, but script execution is not ready.`,
-        data: info,
-        warnings: info.canExecuteScript ? [] : ['Photoshop detection succeeded, but the smoke script did not complete.'],
-        context: {},
-        execution: buildExecutionInfo('script', 'script', Date.now() - startedAt, false),
-        nextSuggestedActions: info.canExecuteScript
-          ? ['Use photoshop_get_state to inspect the current workspace.']
-          : ['Launch Photoshop manually and retry, or inspect configuration with photoshop_get_version.'],
+      await writeFile(join(this.writerLock, 'pid'), String(process.pid), {
+        flag: 'wx',
+        mode: 0o600,
       });
-      this.session.recordToolResult('photoshop_ping', envelope);
-      return createToolResult(envelope);
+      this.server.onclose = () => {
+        void this.stop();
+      };
+      for (const signal of ['SIGINT', 'SIGTERM'] as const)
+        process.once(signal, () => {
+          void this.stop().finally(() => process.exit(0));
+        });
+      await this.server.connect(new StdioServerTransport());
     } catch (error) {
-      const record = categorizeError(error, 'photoshop_ping');
-      this.session.recordError(record);
-      return createToolResult(
-        createEnvelope({
-          ok: false,
-          summary: `photoshop_ping failed: ${record.message}`,
-          data: { error: record },
-          warnings: [],
-          context: {},
-          execution: buildExecutionInfo('script', 'script', Date.now() - startedAt, false),
-          nextSuggestedActions: record.suggestedActions,
-        })
-      );
+      await this.stop();
+      throw error;
     }
+    this.logger.info('Project-scoped MCP connected via stdio; Photoshop has not been launched.');
   }
-
-  private async getVersion() {
-    const connection = this.session.getConnection();
-    const startedAt = Date.now();
-
-    try {
-      const info = await connection.getVersionInfo();
-      const envelope = createEnvelope({
-        ok: true,
-        summary: `Detected ${info.name} ${info.version} at ${info.detectedPath}.`,
-        data: info,
-        warnings: info.canExecuteScript ? [] : ['Script execution could not be confirmed yet.'],
-        context: {},
-        execution: buildExecutionInfo('script', 'script', Date.now() - startedAt, false),
-        nextSuggestedActions: ['Use photoshop_ping for a smoke test or photoshop_get_state for workspace context.'],
+  async stop(): Promise<void> {
+    if (!this.stopping) {
+      this.stopping = Promise.resolve().then(async () => {
+        try {
+          await this.server.close();
+        } finally {
+          if (this.ownsLock) {
+            this.ownsLock = false;
+            await rm(this.writerLock, { recursive: true, force: true });
+          }
+        }
       });
-      this.session.recordToolResult('photoshop_get_version', envelope);
-      return createToolResult(envelope);
-    } catch (error) {
-      const record = categorizeError(error, 'photoshop_get_version');
-      this.session.recordError(record);
-      return createToolResult(
-        createEnvelope({
-          ok: false,
-          summary: `photoshop_get_version failed: ${record.message}`,
-          data: { error: record },
-          warnings: [],
-          context: {},
-          execution: buildExecutionInfo('script', 'script', Date.now() - startedAt, false),
-          nextSuggestedActions: record.suggestedActions,
-        })
-      );
     }
-  }
-
-  async start() {
-    // Initialize session
-    await this.session.initialize();
-
-    // Connect server transport
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    
-    this.logger.info('MCP Server connected via stdio');
-  }
-
-  async stop() {
-    await this.session.disconnect();
-    this.logger.info('MCP Server stopped');
+    return await this.stopping;
   }
 }

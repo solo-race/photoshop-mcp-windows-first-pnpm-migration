@@ -1,21 +1,11 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.rookietopred02-gif/photoshop-mcp-windows-first",
-  "description": "Windows-first Photoshop MCP server with structured state, real smoke coverage, and a bundled Codex skill",
+  "name": "io.github.solo-race/photoshop-mcp-windows-first-pnpm-migration",
+  "description": "Unpublished source checkout: project-scoped Photoshop MCP",
   "repository": {
-    "url": "https://github.com/rookietopred02-gif/photoshop-mcp-windows-first",
+    "url": "https://github.com/solo-race/photoshop-mcp-windows-first-pnpm-migration",
     "source": "github"
   },
   "version": "0.1.2",
-  "mcpName": "io.github.rookietopred02-gif/photoshop-mcp-windows-first",
-  "packages": [
-    {
-      "registryType": "npm",
-      "identifier": "photoshop-mcp-windows-first",
-      "version": "0.1.2",
-      "transport": {
-        "type": "stdio"
-      }
-    }
-  ]
+  "packages": []
 }

@@ -74,7 +74,7 @@ function psGetTextInfo(layer) {
 
   var item = layer.textItem;
   return {
-    contents: psSafeCall(function() { return item.contents; }, ''),
+    characterCount: psSafeCall(function() { return String(item.contents).length; }, 0),
     font: psSafeCall(function() { return item.font; }, null),
     size: psSafeCall(function() { return psPx(item.size); }, null),
     position: psSafeCall(function() {
