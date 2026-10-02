@@ -63,7 +63,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
     category = 'selection-empty';
     suggestedActions = [
       'Create a selection first.',
-      'Use photoshop_select_rectangle, photoshop_select_subject, or related selection tools.',
+      'Use photoshop_select_rectangle or related registered selection tools.',
     ];
   } else if (
     normalized.includes('modal') ||
@@ -73,8 +73,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
     category = 'dialog-blocked';
     retryable = true;
     suggestedActions = [
-      'Inspect Photoshop UI state with photoshop_get_ui_snapshot.',
-      'Dismiss the dialog with photoshop_send_shortcut or a UI fallback tool.',
+      'Ask the user to inspect and resolve the dialog locally.',
     ];
   } else if (
     normalized.includes('not currently available') ||
@@ -83,8 +82,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
     category = 'ui-required';
     retryable = true;
     suggestedActions = [
-      'Retry with executionMode set to auto or ui.',
-      'Use a Photoshop UI fallback tool for this action.',
+      'This operation requires a manual Photoshop step; no UI fallback is exposed.',
     ];
   } else if (
     normalized.includes('invalid') ||
@@ -102,7 +100,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
     retryable = true;
     suggestedActions = [
       'Retry after checking the active document state.',
-      'If the failure is UI-driven, fall back to a UI tool.',
+      'Ask the user to resolve UI-only steps manually.',
     ];
   }
 
@@ -113,7 +111,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
     message,
     retryable,
     suggestedActions,
-    raw: error instanceof Error ? error.stack : undefined,
+    raw: undefined,
   };
 }
 

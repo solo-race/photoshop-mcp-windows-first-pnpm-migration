@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toSendKeys } from '../dist/platform/windows-ui.js';
+import { readFileSync, existsSync } from 'node:fs';
 
-test('toSendKeys maps common shortcuts to SendKeys syntax', () => {
-  assert.equal(toSendKeys('ctrl+shift+z'), '^+z');
-  assert.equal(toSendKeys('escape'), '{ESC}');
-  assert.equal(toSendKeys('f7'), '{F7}');
+test('Windows UI and Action execution implementations are removed', () => {
+  assert.equal(existsSync(new URL('../src/platform/windows-ui.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../src/tools/action-tools.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../scripts/real-tool-smoke.mjs', import.meta.url)), false);
+  const code = readFileSync(new URL('../src/tools/advanced-tools.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(code, /SendKeys|sendShortcut|toSendKeys|CopyFromScreen|executeRawScript/);
 });

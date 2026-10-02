@@ -1,5 +1,7 @@
 import { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { Logger } from '../utils/logger.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { ToolPolicy, disabledTools } from '../security/tool-policy.js';
 
 export interface ToolHandler {
   (args: Record<string, unknown>): Promise<CallToolResult>;
@@ -16,12 +18,17 @@ export class ToolRegistry {
   private logger: Logger;
   private tools: Map<string, ToolDefinition>;
 
-  constructor() {
+  private queue: Promise<unknown> = Promise.resolve();
+  private inCall = new AsyncLocalStorage<boolean>();
+
+  constructor(private policy?: ToolPolicy) {
     this.logger = new Logger('ToolRegistry');
     this.tools = new Map();
   }
 
   register(name: string, definition: ToolDefinition): void {
+    if (disabledTools.has(name)) throw new Error('TOOL_DISABLED');
+    if (this.policy) definition = this.policy.decorate(definition);
     if (this.tools.has(name)) {
       this.logger.warn(`Tool '${name}' already registered, overwriting`);
     }
@@ -51,20 +58,17 @@ export class ToolRegistry {
   }
 
   async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
-    const definition = this.tools.get(name);
-    
-    if (!definition) {
-      throw new Error(`Tool not found: ${name}`);
-    }
-
-    try {
-      this.logger.debug(`Executing tool: ${name}`);
-      const result = await definition.handler(args);
-      return result;
-    } catch (error) {
-      this.logger.error(`Tool execution failed: ${name}`, error);
-      throw error;
-    }
+    const run = async () => {
+      if (disabledTools.has(name)) throw new Error('TOOL_DISABLED');
+      const definition = this.tools.get(name);
+      if (!definition) throw new Error('TOOL_NOT_FOUND');
+      if (!this.policy) throw new Error('POLICY_NOT_INITIALIZED');
+      return await this.policy.run(definition, args);
+    };
+    if (this.inCall.getStore()) return await run();
+    const result = this.queue.then(() => this.inCall.run(true, run));
+    this.queue = result.catch(() => undefined);
+    return await result;
   }
 
   clear(): void {

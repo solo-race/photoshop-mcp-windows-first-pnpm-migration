@@ -1,6 +1,6 @@
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import { writeFile, unlink } from 'fs/promises';
+import { writeFile, rm, mkdtemp } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Logger } from '../utils/logger.js';
@@ -56,28 +56,15 @@ export class WindowsExecutor implements ScriptExecutor {
   }
 
   private async executeScript(script: string, timeout: number): Promise<unknown> {
-    // For Windows, we'll use a combination of VBScript/JScript to communicate with Photoshop via COM
-    // Write script to temporary file
-    const tempScriptPath = join(tmpdir(), `photoshop-script-${Date.now()}.jsx`);
-    
+    const directory = await mkdtemp(join(tmpdir(), 'photoshop-mcp-'));
+    const tempScriptPath = join(directory, 'operation.jsx');
+    const vbsPath = join(directory, 'operation.vbs');
     try {
-      await writeFile(tempScriptPath, script, 'utf8');
-
-      // Use VBScript to execute the JSX script via COM
-      const vbsScript = this.createVBSWrapper(tempScriptPath);
-      const vbsPath = join(tmpdir(), `photoshop-vbs-${Date.now()}.vbs`);
-      
-      await writeFile(vbsPath, vbsScript, 'utf8');
-
-      try {
-        return await this.runVbsScript(vbsPath, timeout);
-      } finally {
-        // Cleanup VBS file
-        await unlink(vbsPath).catch(() => {});
-      }
+      await writeFile(tempScriptPath, script, {encoding: 'utf8', flag: 'wx', mode: 0o600});
+      await writeFile(vbsPath, this.createVBSWrapper(tempScriptPath), {encoding: 'utf8', flag: 'wx', mode: 0o600});
+      return await this.runVbsScript(vbsPath, timeout);
     } finally {
-      // Cleanup JSX file
-      await unlink(tempScriptPath).catch(() => {});
+      await rm(directory, {recursive: true, force: true});
     }
   }
 
@@ -85,7 +72,7 @@ export class WindowsExecutor implements ScriptExecutor {
     return `
 On Error Resume Next
 Dim photoshopApp
-Set photoshopApp = CreateObject("Photoshop.Application")
+Set photoshopApp = GetObject(, "Photoshop.Application")
 
 If Err.Number <> 0 Then
     WScript.Echo "ERROR: Failed to connect to Photoshop - " & Err.Description
@@ -94,7 +81,7 @@ End If
 
 ' Execute the JSX script
 Dim result
-result = photoshopApp.DoJavaScript("$.evalFile('" & Replace("${jsxPath}", "\\", "\\\\") & "');")
+result = photoshopApp.DoJavaScriptFile("${jsxPath.replace(/"/g, '""')}")
 
 If Err.Number <> 0 Then
     WScript.Echo "ERROR: " & Err.Description
@@ -137,10 +124,18 @@ End If
 
       child.stdout?.on('data', (chunk: string) => {
         stdout += chunk;
+        if (stdout.length > 4 * 1024 * 1024) {
+          void this.terminateProcessTree(child.pid);
+          settle(new Error('OUTPUT_LIMIT'));
+        }
       });
 
       child.stderr?.on('data', (chunk: string) => {
         stderr += chunk;
+        if (stderr.length > 1024 * 1024) {
+          void this.terminateProcessTree(child.pid);
+          settle(new Error('OUTPUT_LIMIT'));
+        }
       });
 
       child.on('error', (error) => {
@@ -217,25 +212,7 @@ End If
     }
   }
 
-  async launchPhotoshop(photoshopPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.logger.info(`Launching Photoshop: ${photoshopPath}`);
-
-      const child = spawn(photoshopPath, [], {
-        detached: true,
-        stdio: 'ignore',
-      });
-
-      child.unref();
-
-      // Wait a bit for Photoshop to start
-      setTimeout(() => {
-        resolve();
-      }, 5000);
-
-      child.on('error', (error) => {
-        reject(new Error(`Failed to launch Photoshop: ${error.message}`));
-      });
-    });
+  async launchPhotoshop(_photoshopPath: string): Promise<void> {
+    throw new Error('Automatic launch disabled');
   }
 }

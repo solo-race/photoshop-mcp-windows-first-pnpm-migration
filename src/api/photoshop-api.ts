@@ -114,71 +114,41 @@ class ExtendScriptPhotoshopAPI implements PhotoshopAPI {
   }
 
   private wrapInErrorHandling(script: string): string {
-    return `
-(function() {
-  function __psEscapeString(value) {
-    return String(value)
-      .replace(/\\\\/g, '\\\\\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/\\r/g, '\\\\r')
-      .replace(/\\n/g, '\\\\n')
-      .replace(/\\t/g, '\\\\t')
-      .replace(/\\f/g, '\\\\f')
-      .replace(/\\u2028/g, '\\\\u2028')
-      .replace(/\\u2029/g, '\\\\u2029');
+    // String.raw preserves the escaping required in the generated ExtendScript.
+    // Encoding every JSON control character also handles quoted layer/text names.
+    const encoder = String.raw`
+function __psEncode(value) {
+  if (value === undefined || value === null) return 'null';
+  if (typeof value === 'string') {
+    return '"' + value.replace(/[\\"\u0000-\u001f\u007f-\uffff]/g, function(c) {
+      return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4);
+    }) + '"';
   }
-
-  function __psEncode(value) {
-    if (value === undefined || value === null) {
-      return 'null';
-    }
-
-    var valueType = typeof value;
-    if (valueType === 'string') {
-      return '"' + __psEscapeString(value) + '"';
-    }
-    if (valueType === 'number' || valueType === 'boolean') {
-      return String(value);
-    }
-    if (value instanceof Array) {
-      var parts = [];
-      for (var i = 0; i < value.length; i++) {
-        parts.push(__psEncode(value[i]));
-      }
-      return '[' + parts.join(',') + ']';
-    }
-    if (valueType === 'object') {
-      var objectParts = [];
-      for (var key in value) {
-        if (value.hasOwnProperty(key)) {
-          objectParts.push(__psEncode(String(key)) + ':' + __psEncode(value[key]));
-        }
-      }
-      return '{' + objectParts.join(',') + '}';
-    }
-
-    return __psEncode(String(value));
+  if (typeof value === 'number') return isFinite(value) ? String(value) : 'null';
+  if (typeof value === 'boolean') return String(value);
+  if (value instanceof Array) {
+    var parts = [];
+    for (var i = 0; i < value.length; i++) parts.push(__psEncode(value[i]));
+    return '[' + parts.join(',') + ']';
   }
-
-  try {
-    var result = (function() {
-      ${script}
-    })();
-
-    return __psEncode({
-      ok: true,
-      result: result === undefined ? null : result
-    });
-  } catch (error) {
-    return __psEncode({
-      ok: false,
-      error: {
-        message: error && error.message ? error.message : String(error)
-      }
-    });
+  if (typeof value === 'object') {
+    var parts = [];
+    for (var key in value) if (Object.prototype.hasOwnProperty.call(value, key)) {
+      parts.push(__psEncode(String(key)) + ':' + __psEncode(value[key]));
+    }
+    return '{' + parts.join(',') + '}';
   }
-})();
-    `.trim();
+  return __psEncode(String(value));
+}`;
+    return `(function() {
+${encoder}
+try {
+  var result = (function() { ${script} })();
+  return __psEncode({ok: true, result: result === undefined ? null : result});
+} catch (error) {
+  return __psEncode({ok: false, error: {message: error && error.message ? error.message : String(error)}});
+}
+})();`;
   }
 
   getAPIType(): APIType {

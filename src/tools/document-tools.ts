@@ -126,9 +126,10 @@ async function createDocument(
       colorModeMap[colorMode] || 'NewDocumentMode.RGB'
     );
 
-    await api.executeScript(script);
+    const created = await api.executeScript(script) as {id: number};
 
     return {
+      structuredContent: {id: created.id},
       content: [
         {
           type: 'text' as const,

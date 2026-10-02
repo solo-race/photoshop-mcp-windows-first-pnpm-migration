@@ -28,7 +28,7 @@ export class Session {
     this.logger = new Logger('Session');
     this.connection = new PhotoshopConnection();
     this.config = {
-      autoConnect: true,
+      autoConnect: false,
       reconnectAttempts: 3,
       reconnectDelay: 1000,
       ...config,
