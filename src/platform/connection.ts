@@ -220,7 +220,7 @@ export class PhotoshopConnection {
   var actual = null;
   try { actual = target.fullName.fsName; } catch (_) {}
   var expected = ${expected};
-  if (expected === null ? actual !== null : (actual === null || new File(actual).fsName.toLowerCase() !== new File(expected).fsName.toLowerCase())) throw new Error('TARGET_PATH_CHANGED');
+  if (expected === null ? actual !== null : (actual === null || ${process.platform === 'win32' ? 'new File(actual).fsName.toLowerCase() !== new File(expected).fsName.toLowerCase()' : 'new File(actual).fsName !== new File(expected).fsName'})) throw new Error('TARGET_PATH_CHANGED');
   app.activeDocument = target;
   ${scope.layerId === undefined ? '' : `
   function findLayer(container, id) {

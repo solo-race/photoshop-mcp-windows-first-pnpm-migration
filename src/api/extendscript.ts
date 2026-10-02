@@ -687,16 +687,10 @@ export const ExtendScriptSnippets = {
       throw new Error('No active document');
     }
     var layer = app.activeDocument.activeLayer;
-    var wasRasterized = false;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
-      wasRasterized = true;
-    }
-    
+    // Layer conversion requires a separately authorized destructive operation.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('Can only apply filters to normal (raster) layers. Layer kind: ' + layer.kind);
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.applyGaussianBlur(${radius});
@@ -705,7 +699,7 @@ export const ExtendScriptSnippets = {
       applied: true,
       filter: 'Gaussian Blur',
       radius: ${radius},
-      wasRasterized: wasRasterized,
+      wasRasterized: false,
       context: getContextInfo()
     };
     return result;
@@ -720,13 +714,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
-    }
-    
+    // Layer conversion requires a separately authorized destructive operation.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('Can only apply filters to normal (raster) layers');
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.applyUnSharpMask(${amount}, ${radius}, ${threshold});
@@ -748,13 +738,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
-    }
-    
+    // Layer conversion requires a separately authorized destructive operation.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('Can only apply filters to normal (raster) layers');
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     var distEnum = NoiseDistribution.${distribution};
@@ -777,13 +763,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
-    }
-    
+    // Layer conversion requires a separately authorized destructive operation.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('Can only apply filters to normal (raster) layers');
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.applyMotionBlur(${angle}, ${radius});
@@ -804,9 +786,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
+    // Layer conversion requires a separately authorized destructive operation.
+    if (layer.kind !== LayerKind.NORMAL) {
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.adjustBrightnessContrast(${brightness}, ${contrast});
@@ -827,9 +809,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Match the same rasterization behavior as the other per-layer adjustments.
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
+    // Layer conversion requires a separately authorized destructive operation.
+    if (layer.kind !== LayerKind.NORMAL) {
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
 
     var desc = new ActionDescriptor();
@@ -862,9 +844,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
+    // Layer conversion requires a separately authorized destructive operation.
+    if (layer.kind !== LayerKind.NORMAL) {
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.autoLevels();
@@ -883,9 +865,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
+    // Layer conversion requires a separately authorized destructive operation.
+    if (layer.kind !== LayerKind.NORMAL) {
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.autoContrast();
@@ -904,9 +886,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
+    // Layer conversion requires a separately authorized destructive operation.
+    if (layer.kind !== LayerKind.NORMAL) {
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.desaturate();
@@ -925,9 +907,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Auto-rasterize if needed
-    if (layer.kind === LayerKind.TEXT || layer.kind === LayerKind.SMARTOBJECT) {
-      layer.rasterize(RasterizeType.ENTIRELAYER);
+    // Layer conversion requires a separately authorized destructive operation.
+    if (layer.kind !== LayerKind.NORMAL) {
+      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
     }
     
     layer.invert();

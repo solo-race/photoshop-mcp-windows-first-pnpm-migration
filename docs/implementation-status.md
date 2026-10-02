@@ -37,7 +37,7 @@ Windows require local evidence. No production art or S6 acceptance is claimed.
 ## Verification actually performed (2026-10-02, cloud Linux)
 
 Environment: Node v24.19.0, pnpm 10.18.3. The existing CI remains Node 20;
-that CI has not been run on GitHub during this change.
+initial implementation CI passed on GitHub (run `36999672682`).
 
 - `pnpm import`, then `pnpm install --frozen-lockfile --ignore-scripts` succeeded.
 - Compared every `(package, resolved version)` pair: npm input 191, pnpm output 191,
@@ -66,3 +66,26 @@ The temporary probes are bounded verification, not a new Windows test platform.
 No Photoshop process, binary Action fixture, model/API, real art or cloud image
 upload was used. No independent human reviewer or native machine PASS is claimed.
 The work is not global router deployment and does not advance Yueyue/S6 acceptance.
+
+## PR #1 review corrections (2026-10-02)
+
+- P1: removed implicit rasterization from all ten retained filter/adjustment
+  templates. Non-NORMAL inputs are rejected before edits with safe
+  `RASTERIZATION_REQUIRED` guidance. Explicit `photoshop_rasterize_layer` remains
+  subject to both project and task destructive grants. Gaussian Blur retains its
+  response field with `wasRasterized: false`.
+- P2: document, output and overwrite grants share the same platform-aware path
+  comparison as containment/alias checks. Windows path comparisons accept case
+  variants; POSIX comparisons remain case sensitive. No tool/task identifier
+  folding, traversal acceptance or alias-check removal was introduced. The
+  dispatch guard likewise no longer lowercases paths on non-Windows hosts.
+- Added 14 bounded offline regression tests: ten templates each exercised with
+  NORMAL/TEXT/SMARTOBJECT/SOLIDFILL mocks, Windows/POSIX path positive and negative
+  comparisons, exact tool/task grants and destructive denial, safe error guidance,
+  and distinct case-sensitive filesystem files plus symlink denial.
+- Final local `pnpm test`: 25 passed; build and lint passed. Existing temporary
+  32-assertion policy probe, VM dispatch probe and actual stdio protocol probe
+  were rerun successfully. Windows path probes use `node:path.win32` on Linux;
+  these are not Windows filesystem or Photoshop/COM live verification.
+- Native rendering/COM/reparse behavior remains UNVERIFIED. Review corrections
+  do not claim independent reviewer approval or authorize merging/deployment.

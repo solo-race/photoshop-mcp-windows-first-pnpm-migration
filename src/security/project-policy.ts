@@ -27,9 +27,21 @@ export interface Project {
 const protectedPart =
   /^(?:\.git|\.codex|\.agents|\.ssh|\.aws|\.azure|\.env(?:\..*)?|\.npmrc|\.pnpmfile\..*|node_modules)$/i;
 const deniedName = /^(?:auth|credentials|secrets|config)\.(?:json|toml|ya?ml)$/i;
-export function inside(root: string, candidate: string): boolean {
-  const rel = path.relative(root, candidate);
-  return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
+// Use the host path semantics consistently; never fold POSIX paths to lowercase.
+// The optional flavor permits bounded Windows-path tests without a Windows host.
+export function samePath(a: string, b: string, flavor = path): boolean {
+  return flavor.relative(a, b) === '';
+}
+export function inside(root: string, candidate: string, flavor = path): boolean {
+  const rel = flavor.relative(root, candidate);
+  return rel === '' || (!rel.startsWith(`..${flavor.sep}`) && rel !== '..' && !flavor.isAbsolute(rel));
+}
+export function matchesGrantedPath(
+  root: string, grants: string[], candidate: string, flavor = path
+): boolean {
+  return inside(root, candidate, flavor) && grants.some((p) =>
+    samePath(flavor.join(root, relativePath(p)), candidate, flavor)
+  );
 }
 export function relativePath(value: unknown): string {
   if (
@@ -107,7 +119,7 @@ export class ProjectPolicy {
         throw new Error('POLICY_MUST_BE_OUTSIDE_PROJECTS');
       if (
         (await lstat(item.root)).isSymbolicLink() ||
-        path.resolve(item.root).toLowerCase() !== root.toLowerCase()
+        !samePath(path.resolve(item.root), root)
       )
         throw new Error('PROJECT_ALIAS_DENIED');
       for (const other of policy.projects.values())
@@ -179,7 +191,7 @@ export class ProjectPolicy {
       const stat = await lstat(current);
       if (stat.isSymbolicLink()) throw new Error('PATH_ALIAS_DENIED');
       const resolved = await realpath(current);
-      if (!inside(root, resolved) || path.resolve(current).toLowerCase() !== resolved.toLowerCase())
+      if (!inside(root, resolved) || !samePath(path.resolve(current), resolved))
         throw new Error('PATH_ALIAS_DENIED');
     }
   }
@@ -224,7 +236,7 @@ export class ProjectPolicy {
       throw new Error('DOCUMENT_NOT_REGISTERED');
     const rel = path.relative(project.root, absolute);
     const full = await this.resolve(project, rel, 'read');
-    if (path.resolve(absolute).toLowerCase() !== full.toLowerCase())
+    if (!samePath(path.resolve(absolute), full))
       throw new Error('DOCUMENT_PATH_MISMATCH');
     return full;
   }
@@ -243,7 +255,7 @@ export class ProjectPolicy {
       created
         ? !grant.allow_new_documents
         : !document ||
-          !grant.documents.some((p) => path.join(project.root, relativePath(p)) === document)
+          !matchesGrantedPath(project.root, grant.documents, document)
     )
       throw new Error('TASK_DOCUMENT_DENIED');
     if (destructive && (!project.allow_destructive || !grant.destructive_tools?.includes(tool)))

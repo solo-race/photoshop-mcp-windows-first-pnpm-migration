@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolDefinition } from '../core/tool-registry.js';
 import { PhotoshopConnection, type ScriptScope } from '../platform/connection.js';
-import { ProjectPolicy, relativePath, inside } from './project-policy.js';
+import { ProjectPolicy, relativePath, inside, matchesGrantedPath } from './project-policy.js';
 import { validate, type Schema } from './validation.js';
 
 export const disabledTools = new Set([
@@ -202,12 +202,12 @@ export class ToolPolicy {
     let overwrite = false;
     if (file) {
       const rel = relativePath(args[file.key]);
-      overwrite = !!grant?.overwrite_paths?.some((p) => relativePath(p) === rel);
+      overwrite = matchesGrantedPath(project.root, grant?.overwrite_paths ?? [], path.join(project.root, rel));
       resolved = await this.projects.resolve(project, rel, file.mode, overwrite);
       if (name === 'photoshop_open_image')
         this.projects.grant(project, args.task_id, name, resolved);
       if (file.mode === 'write') {
-        if (!grant?.output_paths?.some((p) => relativePath(p) === rel))
+        if (!matchesGrantedPath(project.root, grant?.output_paths ?? [], resolved))
           throw new Error('TASK_OUTPUT_DENIED');
         const format = String(
           args.format ?? (name === 'photoshop_export_layer_preview' ? 'PNG' : 'PSD')
@@ -268,7 +268,9 @@ export class ToolPolicy {
         content: [
           {
             type: 'text',
-            text: 'PHOTOSHOP_OPERATION_FAILED: inspect the selected document locally; no automatic retry or recovery performed.',
+            text: result.content.some((b) => b.type === 'text' && b.text.includes('RASTERIZATION_REQUIRED'))
+              ? 'RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer before this operation.'
+              : 'PHOTOSHOP_OPERATION_FAILED: inspect the selected document locally; no automatic retry or recovery performed.',
           },
         ],
       };
