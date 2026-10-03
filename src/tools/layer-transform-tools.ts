@@ -77,7 +77,8 @@ export function createLayerTransformTools(connection: PhotoshopConnection): Tool
           properties: {
             degrees: {
               type: 'number',
-              description: 'Rotation angle in degrees (positive = clockwise, negative = counter-clockwise)',
+              description:
+                'Rotation angle in degrees (positive = clockwise, negative = counter-clockwise)',
             },
           },
           required: ['degrees'],

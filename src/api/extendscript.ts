@@ -101,7 +101,12 @@ export const ExtendScriptSnippets = {
   /**
    * Create a new document
    */
-  newDocument: (width: number, height: number, resolution = 72, colorMode = 'NewDocumentMode.RGB') => `
+  newDocument: (
+    width: number,
+    height: number,
+    resolution = 72,
+    colorMode = 'NewDocumentMode.RGB'
+  ) => `
     var doc = app.documents.add(
       UnitValue(${width}, 'px'),
       UnitValue(${height}, 'px'),

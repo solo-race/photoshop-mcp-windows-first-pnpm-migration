@@ -97,7 +97,7 @@ export class MacOSDetector {
 
       // Get version from Info.plist
       const version = await this.extractVersionFromApp(cleanPath);
-      
+
       // Extract app name from path
       const appName = cleanPath.split('/').pop()?.replace('.app', '') || 'Adobe Photoshop 2025';
 
@@ -118,15 +118,15 @@ export class MacOSDetector {
     try {
       // Try to read version from Info.plist
       const plistPath = `${appPath}/Contents/Info.plist`;
-      
+
       try {
         await access(plistPath, constants.F_OK);
-        
+
         // Use PlistBuddy to extract version
         const { stdout: version } = await execAsync(
           `/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${plistPath}"`
         );
-        
+
         if (version.trim()) {
           return version.trim();
         }
@@ -136,7 +136,7 @@ export class MacOSDetector {
         const versionMatch = content.match(
           /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/
         );
-        
+
         if (versionMatch) {
           return versionMatch[1];
         }

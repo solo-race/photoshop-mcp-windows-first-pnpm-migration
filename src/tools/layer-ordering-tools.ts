@@ -13,7 +13,9 @@ export function createLayerOrderingTools(connection: PhotoshopConnection): ToolD
           type: 'object',
           properties: {
             targetLayerId: {
-              type: 'integer', minimum: 1, maximum: 2147483647,
+              type: 'integer',
+              minimum: 1,
+              maximum: 2147483647,
               description: 'ID of the layer to move relative to',
             },
             position: {

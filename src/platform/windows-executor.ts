@@ -60,11 +60,15 @@ export class WindowsExecutor implements ScriptExecutor {
     const tempScriptPath = join(directory, 'operation.jsx');
     const vbsPath = join(directory, 'operation.vbs');
     try {
-      await writeFile(tempScriptPath, script, {encoding: 'utf8', flag: 'wx', mode: 0o600});
-      await writeFile(vbsPath, this.createVBSWrapper(tempScriptPath), {encoding: 'utf8', flag: 'wx', mode: 0o600});
+      await writeFile(tempScriptPath, script, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      await writeFile(vbsPath, this.createVBSWrapper(tempScriptPath), {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      });
       return await this.runVbsScript(vbsPath, timeout);
     } finally {
-      await rm(directory, {recursive: true, force: true});
+      await rm(directory, { recursive: true, force: true });
     }
   }
 
@@ -188,7 +192,7 @@ End If
 
   private parseResult(output: string): unknown {
     const trimmed = output.trim();
-    
+
     // Check for error
     if (trimmed.startsWith('ERROR:')) {
       throw new Error(trimmed.substring(6).trim());

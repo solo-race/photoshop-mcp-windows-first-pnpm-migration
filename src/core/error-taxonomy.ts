@@ -56,10 +56,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
       'Inspect the current document or layer tree before retrying.',
       'Use photoshop_get_state or photoshop_get_layer_tree to confirm the target.',
     ];
-  } else if (
-    normalized.includes('no selection') ||
-    normalized.includes('selection is empty')
-  ) {
+  } else if (normalized.includes('no selection') || normalized.includes('selection is empty')) {
     category = 'selection-empty';
     suggestedActions = [
       'Create a selection first.',
@@ -72,9 +69,7 @@ export function categorizeError(error: unknown, toolName?: string): LastErrorRec
   ) {
     category = 'dialog-blocked';
     retryable = true;
-    suggestedActions = [
-      'Ask the user to inspect and resolve the dialog locally.',
-    ];
+    suggestedActions = ['Ask the user to inspect and resolve the dialog locally.'];
   } else if (
     normalized.includes('not currently available') ||
     normalized.includes('only available from the user interface')

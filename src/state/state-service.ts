@@ -78,7 +78,9 @@ export class PhotoshopStateService {
     layerRef: LayerRef | undefined,
     detail: ResponseDetail
   ): Promise<Record<string, unknown>> {
-    return toPlainObject(await this.runScript(buildGetLayerInfoScript(documentRef, layerRef, detail)));
+    return toPlainObject(
+      await this.runScript(buildGetLayerInfoScript(documentRef, layerRef, detail))
+    );
   }
 
   async getSelectionBounds(documentRef?: DocumentRef): Promise<Record<string, unknown>> {
@@ -118,7 +120,9 @@ export class PhotoshopStateService {
     documentRef: DocumentRef | undefined,
     stateRef: string | number
   ): Promise<Record<string, unknown>> {
-    return toPlainObject(await this.runScript(buildSelectHistoryStateScript(documentRef, stateRef)));
+    return toPlainObject(
+      await this.runScript(buildSelectHistoryStateScript(documentRef, stateRef))
+    );
   }
 
   async duplicateDocument(
@@ -219,10 +223,7 @@ export class PhotoshopStateService {
     throw new Error(`Timed out waiting for Photoshop to become idle after ${timeoutMs}ms`);
   }
 
-  async createCheckpoint(
-    name: string,
-    documentRef?: DocumentRef
-  ): Promise<CheckpointRecord> {
+  async createCheckpoint(name: string, documentRef?: DocumentRef): Promise<CheckpointRecord> {
     const marker = toPlainObject(await this.runScript(buildCheckpointMarkerScript(documentRef)));
     const record: CheckpointRecord = {
       name,

@@ -5,7 +5,10 @@ import { PhotoshopAPIFactory } from '../api/photoshop-api.js';
 import { toExtendScriptValue } from '../core/serializer.js';
 
 export interface ScriptScope {
-  documentId?: number; documentPath?: string; layerId?: number; recheck: () => Promise<void>;
+  documentId?: number;
+  documentPath?: string;
+  layerId?: number;
+  recheck: () => Promise<void>;
 }
 
 import { Logger } from '../utils/logger.js';
@@ -48,9 +51,13 @@ export class PhotoshopConnection {
     } else {
       // Offline policy/registry tests and stdio capability inspection are possible on Linux.
       this.executor = {
-        execute: async () => { throw new Error('Photoshop execution requires Windows or macOS'); },
+        execute: async () => {
+          throw new Error('Photoshop execution requires Windows or macOS');
+        },
         isPhotoshopRunning: async () => false,
-        launchPhotoshop: async () => { throw new Error('Automatic launch disabled'); },
+        launchPhotoshop: async () => {
+          throw new Error('Automatic launch disabled');
+        },
       };
     }
   }
@@ -142,7 +149,9 @@ export class PhotoshopConnection {
       // Check if Photoshop is running, launch if needed
       const isRunning = await this.executor.isPhotoshopRunning();
       if (!isRunning) {
-        throw new Error('Photoshop is not running. Open it manually; automatic launch is disabled.');
+        throw new Error(
+          'Photoshop is not running. Open it manually; automatic launch is disabled.'
+        );
       }
 
       // Execute the script
@@ -173,7 +182,9 @@ export class PhotoshopConnection {
     }
   }
 
-  async getExecutionModesAvailable(): Promise<ExecutionMode[]> { return ['script']; }
+  async getExecutionModesAvailable(): Promise<ExecutionMode[]> {
+    return ['script'];
+  }
 
   async withScope<T>(scope: ScriptScope, operation: () => Promise<T>): Promise<T> {
     await this.ensureDetected();
@@ -181,18 +192,22 @@ export class PhotoshopConnection {
   }
 
   /** Internal metadata only. Never forward this result to a client. */
-  async inspectDocuments(): Promise<{id: number; path: string | null}[]> {
+  async inspectDocuments(): Promise<{ id: number; path: string | null }[]> {
     await this.ensureDetected();
     const api = await new PhotoshopAPIFactory(this).createAPI();
     const install = !this.epochInstalled;
     // Latch before dispatch: an ambiguous response must never reinstall identity.
     this.epochInstalled = true;
-    const result = await api.executeScript(`
-      ${install ? `
+    const result = (await api.executeScript(`
+      ${
+        install
+          ? `
       var descriptor = new ActionDescriptor();
       descriptor.putString(stringIDToTypeID('token'), ${toExtendScriptValue(this.epoch)});
       app.putCustomOptions(${toExtendScriptValue('__mcp_' + this.epoch)}, descriptor, false);
-      ` : ''}
+      `
+          : ''
+      }
       ${this.checkEpochScript()}
       var records = [];
       for (var i = 0; i < app.documents.length; i++) {
@@ -201,7 +216,7 @@ export class PhotoshopConnection {
         records.push({id: d.id, path: p});
       }
       return records;
-    `) as {id: number; path: string | null}[];
+    `)) as { id: number; path: string | null }[];
     return result;
   }
 
@@ -216,7 +231,8 @@ export class PhotoshopConnection {
   }
 
   private guardScript(script: string, scope: ScriptScope): string {
-    if (scope.documentId === undefined) return `(function() {
+    if (scope.documentId === undefined)
+      return `(function() {
       ${this.checkEpochScript()}
       var dialogs = app.displayDialogs;
       try { app.displayDialogs = DialogModes.NO; return ${script} }
@@ -238,7 +254,10 @@ export class PhotoshopConnection {
   var expected = ${expected};
   if (expected === null ? actual !== null : (actual === null || ${process.platform === 'win32' ? 'new File(actual).fsName.toLowerCase() !== new File(expected).fsName.toLowerCase()' : 'new File(actual).fsName !== new File(expected).fsName'})) throw new Error('TARGET_PATH_CHANGED');
   app.activeDocument = target;
-  ${scope.layerId === undefined ? '' : `
+  ${
+    scope.layerId === undefined
+      ? ''
+      : `
   function findLayer(container, id) {
     for (var j = 0; j < container.layers.length; j++) {
       var layer = container.layers[j];
@@ -250,7 +269,8 @@ export class PhotoshopConnection {
   var selected = findLayer(target, ${scope.layerId});
   if (!selected) throw new Error('TARGET_LAYER_CHANGED');
   target.activeLayer = selected;
-  `}
+  `
+  }
   var dialogs = app.displayDialogs;
   try { app.displayDialogs = DialogModes.NO; return ${script} }
   finally { app.displayDialogs = dialogs; }

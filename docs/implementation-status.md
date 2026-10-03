@@ -19,8 +19,8 @@ Status: **MCP-only offline verification passed; P6 session identity repair U1–
 
 The repair uses a unique nonpersistent CustomOptions token, installed once with
 a one-way flag. Missing or mismatched tokens reject without replenishment;
-scope/grant ordering is unchanged. Tester reported tests and lint passed;
-format checking still reports pre-existing source failures. U3 review passed;
+scope/grant ordering is unchanged. This round, tester reported `pnpm run format:check`
+and lint passed; `pnpm test`: 58 passed. U3 review passed;
 final independent session-repair review PASS.
 
 Native acceptance retained the same Node process and Connection: repeated

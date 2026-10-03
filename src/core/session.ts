@@ -15,13 +15,11 @@ export class Session {
   private isConnected = false;
   private lastActivity: Date;
   private lastError: LastErrorRecord | null = null;
-  private lastToolResult:
-    | {
-        timestamp: string;
-        toolName: string;
-        envelope: ToolEnvelope<unknown>;
-      }
-    | null = null;
+  private lastToolResult: {
+    timestamp: string;
+    toolName: string;
+    envelope: ToolEnvelope<unknown>;
+  } | null = null;
   private checkpoints: Map<string, CheckpointRecord> = new Map();
 
   constructor(config: SessionConfig = {}) {
@@ -48,7 +46,7 @@ export class Session {
     try {
       this.logger.info('Connecting to Photoshop...');
       const connected = await this.connection.ping();
-      
+
       if (connected) {
         this.isConnected = true;
         this.updateActivity();
@@ -68,10 +66,10 @@ export class Session {
 
   async reconnect(): Promise<boolean> {
     this.logger.info('Attempting to reconnect...');
-    
+
     for (let attempt = 1; attempt <= (this.config.reconnectAttempts || 3); attempt++) {
       this.logger.debug(`Reconnect attempt ${attempt}/${this.config.reconnectAttempts}`);
-      
+
       const connected = await this.connect();
       if (connected) {
         return true;
@@ -116,10 +114,7 @@ export class Session {
     this.logger.warn(`Recorded session error (${error.category})`, error.message);
   }
 
-  recordToolResult(
-    toolName: string,
-    envelope: ToolEnvelope<unknown>
-  ): void {
+  recordToolResult(toolName: string, envelope: ToolEnvelope<unknown>): void {
     this.lastToolResult = {
       timestamp: new Date().toISOString(),
       toolName,

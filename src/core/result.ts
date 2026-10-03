@@ -49,15 +49,7 @@ export const TOOL_ENVELOPE_OUTPUT_SCHEMA: {
       items: { type: 'string' },
     },
   },
-  required: [
-    'ok',
-    'summary',
-    'data',
-    'warnings',
-    'context',
-    'execution',
-    'nextSuggestedActions',
-  ],
+  required: ['ok', 'summary', 'data', 'warnings', 'context', 'execution', 'nextSuggestedActions'],
   additionalProperties: false,
 };
 
@@ -116,7 +108,10 @@ export function createToolResult<TData>(envelope: ToolEnvelope<TData>): CallTool
   };
 }
 
-export function responseDetailFromArgs(value: unknown, fallback: ResponseDetail = 'normal'): ResponseDetail {
+export function responseDetailFromArgs(
+  value: unknown,
+  fallback: ResponseDetail = 'normal'
+): ResponseDetail {
   if (value === 'minimal' || value === 'normal' || value === 'full') {
     return value;
   }

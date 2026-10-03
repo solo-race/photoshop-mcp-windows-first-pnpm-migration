@@ -68,7 +68,15 @@ export function createTextTools(connection: PhotoshopConnection): ToolDefinition
             alignment: {
               type: 'string',
               description: 'Text alignment',
-              enum: ['LEFT', 'CENTER', 'RIGHT', 'LEFTJUSTIFIED', 'CENTERJUSTIFIED', 'RIGHTJUSTIFIED', 'FULLYJUSTIFIED'],
+              enum: [
+                'LEFT',
+                'CENTER',
+                'RIGHT',
+                'LEFTJUSTIFIED',
+                'CENTERJUSTIFIED',
+                'RIGHTJUSTIFIED',
+                'FULLYJUSTIFIED',
+              ],
             },
           },
           required: ['alignment'],

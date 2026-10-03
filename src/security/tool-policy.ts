@@ -202,7 +202,11 @@ export class ToolPolicy {
     let overwrite = false;
     if (file) {
       const rel = relativePath(args[file.key]);
-      overwrite = matchesGrantedPath(project.root, grant?.overwrite_paths ?? [], path.join(project.root, rel));
+      overwrite = matchesGrantedPath(
+        project.root,
+        grant?.overwrite_paths ?? [],
+        path.join(project.root, rel)
+      );
       resolved = await this.projects.resolve(project, rel, file.mode, overwrite);
       if (name === 'photoshop_open_image')
         this.projects.grant(project, args.task_id, name, resolved);
@@ -268,7 +272,9 @@ export class ToolPolicy {
         content: [
           {
             type: 'text',
-            text: result.content.some((b) => b.type === 'text' && b.text.includes('RASTERIZATION_REQUIRED'))
+            text: result.content.some(
+              (b) => b.type === 'text' && b.text.includes('RASTERIZATION_REQUIRED')
+            )
               ? 'RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer before this operation.'
               : 'PHOTOSHOP_OPERATION_FAILED: inspect the selected document locally; no automatic retry or recovery performed.',
           },

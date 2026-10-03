@@ -15,10 +15,10 @@ const startupErrorCodes = new Set([
 async function main() {
   try {
     logger.info('Starting Photoshop MCP Server...');
-    
+
     const server = new PhotoshopMCPServer();
     await server.start();
-    
+
     logger.info('Photoshop MCP Server is running');
   } catch (error) {
     const message = error instanceof Error ? error.message : '';

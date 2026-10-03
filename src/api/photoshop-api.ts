@@ -26,14 +26,14 @@ export class PhotoshopAPIFactory {
 
   async createAPI(): Promise<PhotoshopAPI> {
     const info = this.connection.getPhotoshopInfo();
-    
+
     if (!info) {
       throw new Error('Photoshop info not available. Please detect Photoshop first.');
     }
 
     // Determine which API to use based on version
     const apiType = this.determineAPIType(info.version);
-    
+
     this.logger.info(`Creating ${apiType} API for Photoshop version ${info.version}`);
 
     if (apiType === 'UXP') {
@@ -47,8 +47,10 @@ export class PhotoshopAPIFactory {
     // IMPORTANT: When running scripts via AppleScript/COM, we can only use ExtendScript
     // UXP is only available for plugins, not for external script execution
     // Therefore, we always use ExtendScript for external automation
-    
-    this.logger.debug(`Using ExtendScript for version ${version} (UXP not available for external scripting)`);
+
+    this.logger.debug(
+      `Using ExtendScript for version ${version} (UXP not available for external scripting)`
+    );
     return 'ExtendScript';
   }
 }

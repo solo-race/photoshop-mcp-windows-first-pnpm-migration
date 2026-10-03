@@ -11,9 +11,7 @@ export class Logger {
 
   constructor(context: string, logLevel: LogLevel = LogLevel.INFO) {
     this.context = context;
-    this.logLevel = process.env.LOG_LEVEL
-      ? parseInt(process.env.LOG_LEVEL, 10)
-      : logLevel;
+    this.logLevel = process.env.LOG_LEVEL ? parseInt(process.env.LOG_LEVEL, 10) : logLevel;
   }
 
   private log(level: LogLevel, message: string, ...args: unknown[]) {
@@ -26,9 +24,9 @@ export class Logger {
     // IMPORTANT: MCP uses stdout for protocol communication
     // All logs must go to stderr to avoid corrupting the JSON-RPC protocol
     const formattedArgs = args.map((arg) => this.formatArg(arg)).join(' ');
-    
+
     const logMessage = `${prefix} ${message} ${formattedArgs}`.trim();
-    
+
     // Always write to stderr, never stdout
     process.stderr.write(logMessage + '\n');
   }

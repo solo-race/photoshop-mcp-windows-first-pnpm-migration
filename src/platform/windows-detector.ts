@@ -60,7 +60,7 @@ export class WindowsDetector {
         try {
           const { stdout } = await execAsync(`reg query "${regPath}" /s`);
           const entries = this.parseRegistryOutput(stdout);
-          
+
           if (entries.length > 0) {
             // Get the latest version
             const latest = entries.sort((a, b) => b.version.localeCompare(a.version))[0];
@@ -101,7 +101,7 @@ export class WindowsDetector {
   private parseRegistryOutput(output: string): RegistryEntry[] {
     const entries: RegistryEntry[] = [];
     const lines = output.split('\n');
-    
+
     let currentVersion = '';
     for (const line of lines) {
       // Extract version from registry path
@@ -137,7 +137,7 @@ export class WindowsDetector {
     const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
 
     const paths: string[] = [];
-    
+
     // Generate paths for versions 2012-2025
     for (let year = 2025; year >= 2012; year--) {
       paths.push(
@@ -161,19 +161,19 @@ export class WindowsDetector {
     try {
       // Clean up path
       let cleanPath = path.trim().replace(/^"|"$/g, '');
-      
+
       // If path is a directory, append Photoshop.exe
       if (!cleanPath.toLowerCase().endsWith('.exe')) {
         cleanPath = `${cleanPath}\\Photoshop.exe`;
       }
 
       await access(cleanPath, constants.F_OK);
-      
+
       const version = this.extractVersionFromPath(cleanPath);
       const appName = basename(dirname(cleanPath));
-      
+
       this.logger.info('Found Photoshop installation');
-      
+
       return {
         version,
         path: cleanPath,

@@ -14,8 +14,8 @@ once with `persistent: false`, then compared by inspections and scoped dispatch
 without replenishment. This choice is supported by cross-call observations and
 an actual human-controlled restart, not by the parameter name or PID enumeration.
 
-- Offline: tester reported tests and lint passed; existing source-format failures
-  remain separate from this repair.
+- Offline: this round, tester reported `pnpm run format:check` and lint passed;
+  `pnpm test`: 58 passed.
 - Same-session native: real inspections and registry create/query calls succeeded
   with the same Node process, Connection and document binding.
 - Restart-native: the retained Connection rejected its old identity and document

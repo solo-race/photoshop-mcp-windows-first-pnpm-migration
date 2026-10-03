@@ -34,13 +34,19 @@ export function samePath(a: string, b: string, flavor = path): boolean {
 }
 export function inside(root: string, candidate: string, flavor = path): boolean {
   const rel = flavor.relative(root, candidate);
-  return rel === '' || (!rel.startsWith(`..${flavor.sep}`) && rel !== '..' && !flavor.isAbsolute(rel));
+  return (
+    rel === '' || (!rel.startsWith(`..${flavor.sep}`) && rel !== '..' && !flavor.isAbsolute(rel))
+  );
 }
 export function matchesGrantedPath(
-  root: string, grants: string[], candidate: string, flavor = path
+  root: string,
+  grants: string[],
+  candidate: string,
+  flavor = path
 ): boolean {
-  return inside(root, candidate, flavor) && grants.some((p) =>
-    samePath(flavor.join(root, relativePath(p, flavor)), candidate, flavor)
+  return (
+    inside(root, candidate, flavor) &&
+    grants.some((p) => samePath(flavor.join(root, relativePath(p, flavor)), candidate, flavor))
   );
 }
 export function relativePath(value: unknown, flavor = path): string {
@@ -117,10 +123,7 @@ export class ProjectPolicy {
       const root = await realpath(item.root);
       if (!(await lstat(root)).isDirectory() || inside(root, policy.filename))
         throw new Error('POLICY_MUST_BE_OUTSIDE_PROJECTS');
-      if (
-        (await lstat(item.root)).isSymbolicLink() ||
-        !samePath(path.resolve(item.root), root)
-      )
+      if ((await lstat(item.root)).isSymbolicLink() || !samePath(path.resolve(item.root), root))
         throw new Error('PROJECT_ALIAS_DENIED');
       for (const other of policy.projects.values())
         if (inside(other.root, root) || inside(root, other.root))
@@ -227,8 +230,7 @@ export class ProjectPolicy {
     if (mode === 'write' && exists && (!project.allow_overwrite || !overwrite))
       throw new Error('OVERWRITE_DENIED');
     const ext = path.extname(full).toLowerCase();
-    if (!['.psd', '.png', '.jpg', '.jpeg'].includes(ext))
-      throw new Error('FORMAT_DENIED');
+    if (!['.psd', '.png', '.jpg', '.jpeg'].includes(ext)) throw new Error('FORMAT_DENIED');
     return full;
   }
   async documentPath(project: Project, absolute: string): Promise<string> {
@@ -236,8 +238,7 @@ export class ProjectPolicy {
       throw new Error('DOCUMENT_NOT_REGISTERED');
     const rel = path.relative(project.root, absolute);
     const full = await this.resolve(project, rel, 'read');
-    if (!samePath(path.resolve(absolute), full))
-      throw new Error('DOCUMENT_PATH_MISMATCH');
+    if (!samePath(path.resolve(absolute), full)) throw new Error('DOCUMENT_PATH_MISMATCH');
     return full;
   }
   grant(
@@ -254,8 +255,7 @@ export class ProjectPolicy {
     if (
       created
         ? !grant.allow_new_documents
-        : !document ||
-          !matchesGrantedPath(project.root, grant.documents, document)
+        : !document || !matchesGrantedPath(project.root, grant.documents, document)
     )
       throw new Error('TASK_DOCUMENT_DENIED');
     if (destructive && (!project.allow_destructive || !grant.destructive_tools?.includes(tool)))

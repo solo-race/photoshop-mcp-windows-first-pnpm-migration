@@ -16,8 +16,8 @@ function escapeNonAscii(input: string): string {
 export function toExtendScriptValue(value: ScriptSerializable | undefined): string {
   return escapeNonAscii(
     JSON.stringify(value === undefined ? null : value)
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029')
   );
 }
 
