@@ -30,7 +30,7 @@
 
 ## 应用执行边界
 
-[PhotoshopConnection](src/platform/connection.ts) 为每个连接对象生成 epoch；首次检查文档时在 Photoshop `$.global` 安装标记，随后检查该标记。带作用域的操作在同一 Photoshop 脚本中检查 epoch、文档 ID/路径和所需图层 ID，再选择目标并执行；执行期间禁用对话框，结束时恢复设置。MCP 重启会丢失临时文档绑定；Photoshop 重启导致标记检查失败。超时或输出限制类错误使连接进入 faulted 状态，后续执行要求重启。
+[PhotoshopConnection](src/platform/connection.ts) 为每个连接对象生成 epoch，以其派生的唯一 key 和字符串 token 使用 Photoshop CustomOptions。首次文档检查在发出安装脚本前锁定一次性安装状态，通过 `app.putCustomOptions(key, descriptor, false)` 安装并在同一调用中读取核对；调用失败也不重试安装。后续检查和带作用域的操作只读取同一 key/token；无法读取或 token 不匹配时以 `PHOTOSHOP_SESSION_CHANGED` 拒绝，不补写。`persistent:false` 本身不作为重启失效证明。带作用域的操作在同一 Photoshop 脚本中检查 token、文档 ID/路径和所需图层 ID，再选择目标并执行；执行期间禁用对话框，结束时恢复设置。MCP 重启会丢失临时文档绑定；非作用域版本诊断不安装或恢复 token。超时或输出限制类错误使连接进入 faulted 状态，后续执行要求重启。
 
 [ScriptExecutor](src/platform/script-executor.ts) 定义平台执行接口。[WindowsExecutor](src/platform/windows-executor.ts) 串行处理脚本，在临时目录创建 JSX/VBS 文件（`wx`、`0600`），通过隐藏窗口的 `cscript //nologo` 执行 VBS；VBS 使用 `GetObject` 连接已运行的 `Photoshop.Application`，调用 `DoJavaScriptFile`。执行器限制 stdout/stderr 大小，超时或超限时尝试终止子进程树，并在 finally 清理临时目录。
 

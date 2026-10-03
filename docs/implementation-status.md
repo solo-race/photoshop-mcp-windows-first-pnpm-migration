@@ -4,7 +4,7 @@ Baseline: `d75a31f6cb2c95ef6b704c1ca2441cfa2dfdf84b`.
 Plan: `d3f2a1e` on `plan/ps-hardening-pnpm-router`.
 Owner narrowed scope on 2026-10-02: this MCP only; router and Yueyue skill work deferred.
 
-Status: **MCP-only offline verification passed; native Photoshop use UNVERIFIED**.
+Status: **MCP-only offline verification passed; P6 session identity repair U1–U4 accepted on the observed Windows host, final independent session-repair review PASS; remaining native Photoshop use UNVERIFIED**.
 
 - P0: source paths reviewed; project policy and explicit expiring task grants defined.
 - P1: pnpm 10.18.3 import, frozen installation (scripts disabled), build, lint and existing offline tests passed.
@@ -13,7 +13,28 @@ Status: **MCP-only offline verification passed; native Photoshop use UNVERIFIED*
   serial workflows, local-only preview, and scoped metadata implemented; bounded offline policy and protocol probes passed.
 - P4: only stale bundled MCP instructions aligned. Skill rename/router packaging deferred.
 - P5: OUT OF SCOPE, no external repository changes or deployment.
-- P6: native Photoshop checks UNVERIFIED; never run the old Action-based smoke script.
+- P6: bounded session identity repair U1–U4 accepted; remaining P6 native, rendering and Yueyue integration checks UNVERIFIED. Never run the old Action-based smoke script.
+
+## P6 session identity repair acceptance (2026-10-03, Windows)
+
+The repair uses a unique nonpersistent CustomOptions token, installed once with
+a one-way flag. Missing or mismatched tokens reject without replenishment;
+scope/grant ordering is unchanged. Tester reported tests and lint passed;
+format checking still reports pre-existing source failures. U3 review passed;
+final independent session-repair review PASS.
+
+Native acceptance retained the same Node process and Connection: repeated
+inspections and real registry creation/query of an authorized disposable unsaved
+document succeeded. After a human-controlled Photoshop restart, the original
+identity stayed unchanged and both inspection and the retained document binding
+rejected with `PHOTOSHOP_SESSION_CHANGED` before the document handler. A fresh
+Connection succeeded. Process observations are not the identity; COM/process
+binding remains unknown. These results apply to the observed host only.
+
+Diagnostic cleanup completed: the current owned token, writer lock and temporary
+files were removed; the unavailable old token was reported as a retired identity,
+not proof of absolute absence. Document cleanup remains the human's responsibility.
+This does not accept the remaining P6 native, rendering or Yueyue integration work.
 
 ## Native disposable-document check (separate authorization)
 
@@ -31,8 +52,9 @@ Directory checks are application-level confinement, not an OS sandbox. Same-user
 hostile processes can race filesystem/Photoshop state. Policy files must be protected
 from other host tools. Only one MCP process may write to Photoshop. Existing PSD
 linked resources and installed Photoshop plugins are outside this runtime's file
-broker. Native output rendering, COM behavior, and filesystem reparse semantics on
-Windows require local evidence. No production art or S6 acceptance is claimed.
+broker. Native output rendering, COM behavior beyond the bounded session identity
+checks, and filesystem reparse semantics on Windows require local evidence.
+No production art or S6 acceptance is claimed.
 
 ## Verification actually performed (2026-10-02, cloud Linux)
 

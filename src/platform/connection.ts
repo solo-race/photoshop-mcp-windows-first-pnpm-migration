@@ -184,9 +184,16 @@ export class PhotoshopConnection {
   async inspectDocuments(): Promise<{id: number; path: string | null}[]> {
     await this.ensureDetected();
     const api = await new PhotoshopAPIFactory(this).createAPI();
+    const install = !this.epochInstalled;
+    // Latch before dispatch: an ambiguous response must never reinstall identity.
+    this.epochInstalled = true;
     const result = await api.executeScript(`
-      var key = ${toExtendScriptValue('__mcp_' + this.epoch)};
-      ${this.epochInstalled ? "if ($.global[key] !== true) throw new Error('PHOTOSHOP_SESSION_CHANGED');" : '$.global[key] = true;'}
+      ${install ? `
+      var descriptor = new ActionDescriptor();
+      descriptor.putString(stringIDToTypeID('token'), ${toExtendScriptValue(this.epoch)});
+      app.putCustomOptions(${toExtendScriptValue('__mcp_' + this.epoch)}, descriptor, false);
+      ` : ''}
+      ${this.checkEpochScript()}
       var records = [];
       for (var i = 0; i < app.documents.length; i++) {
         var d = app.documents[i]; var p = null;
@@ -195,13 +202,22 @@ export class PhotoshopConnection {
       }
       return records;
     `) as {id: number; path: string | null}[];
-    this.epochInstalled = true;
     return result;
+  }
+
+  private checkEpochScript(): string {
+    return `
+      var sessionToken;
+      try {
+        sessionToken = app.getCustomOptions(${toExtendScriptValue('__mcp_' + this.epoch)}).getString(stringIDToTypeID('token'));
+      } catch (_) { throw new Error('PHOTOSHOP_SESSION_CHANGED'); }
+      if (sessionToken !== ${toExtendScriptValue(this.epoch)}) throw new Error('PHOTOSHOP_SESSION_CHANGED');
+    `;
   }
 
   private guardScript(script: string, scope: ScriptScope): string {
     if (scope.documentId === undefined) return `(function() {
-      if ($.global[${toExtendScriptValue('__mcp_' + this.epoch)}] !== true) throw new Error('PHOTOSHOP_SESSION_CHANGED');
+      ${this.checkEpochScript()}
       var dialogs = app.displayDialogs;
       try { app.displayDialogs = DialogModes.NO; return ${script} }
       finally { app.displayDialogs = dialogs; }
@@ -211,7 +227,7 @@ export class PhotoshopConnection {
     // active document between MCP calls cannot redirect the operation.
     return `
 (function() {
-  if ($.global[${toExtendScriptValue('__mcp_' + this.epoch)}] !== true) throw new Error('PHOTOSHOP_SESSION_CHANGED');
+  ${this.checkEpochScript()}
   var target = null;
   for (var i = 0; i < app.documents.length; i++) {
     if (app.documents[i].id === ${scope.documentId}) { target = app.documents[i]; break; }
