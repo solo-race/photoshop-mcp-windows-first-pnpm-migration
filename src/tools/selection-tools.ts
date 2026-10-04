@@ -8,25 +8,28 @@ export function createSelectionTools(connection: PhotoshopConnection): ToolDefin
     {
       tool: {
         name: 'photoshop_select_rectangle',
-        description: 'Create a rectangular selection',
+        description:
+          'Replace selection with a half-open integer pixel rectangle inside the canvas, without feathering or antialiasing',
         inputSchema: {
           type: 'object',
           properties: {
             left: {
-              type: 'number',
+              type: 'integer',
+              minimum: 0,
               description: 'Left edge in pixels',
             },
             top: {
-              type: 'number',
+              type: 'integer',
+              minimum: 0,
               description: 'Top edge in pixels',
             },
             right: {
-              type: 'number',
-              description: 'Right edge in pixels',
+              type: 'integer',
+              description: 'Exclusive right edge in pixels',
             },
             bottom: {
-              type: 'number',
-              description: 'Bottom edge in pixels',
+              type: 'integer',
+              description: 'Exclusive bottom edge in pixels',
             },
           },
           required: ['left', 'top', 'right', 'bottom'],
@@ -113,6 +116,17 @@ async function selectRectangle(
   const bottom = args.bottom as number;
 
   try {
+    if (
+      ![left, top, right, bottom].every(Number.isInteger) ||
+      left < 0 ||
+      top < 0 ||
+      left >= right ||
+      top >= bottom
+    ) {
+      throw new Error(
+        'Rectangle must have finite integer edges with 0 <= left < right and 0 <= top < bottom'
+      );
+    }
     const apiFactory = new PhotoshopAPIFactory(connection);
     const api = await apiFactory.createAPI();
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,14 +84,6 @@ async function fixture(t) {
   };
 }
 
-async function deadPid(f) {
-  const child = f.launch('', 'process.exit(0);');
-  const pid = child.process.pid;
-  assert.equal((await child.closed).code, 0);
-  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
-  return String(pid);
-}
-
 async function handshake(child) {
   child.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
     protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'lock-regression', version: '1' },
@@ -113,102 +105,101 @@ function refused(result, code, root) {
   assert.doesNotMatch(result.stderr, /Error:|\bat file:/);
 }
 
-test('fresh and confirmed-dead locks handshake and release ownership on stdin EOF', async (t) => {
-  for (const stale of [false, true]) {
-    await t.test(stale ? 'real exited writer' : 'fresh writer', async (t) => {
-      const f = await fixture(t);
-      const neighbor = join(f.root, 'unrelated');
-      await writeFile(neighbor, sensitive);
-      if (stale) await f.existing(await deadPid(f));
-      const child = f.launch();
-      await handshake(child);
-      assert.equal(await readFile(join(f.lock, 'pid'), 'utf8'), String(child.process.pid));
-      assert.deepEqual(await readdir(f.lock), ['pid']);
-      if (process.platform !== 'win32') {
-        assert.equal((await stat(f.lock)).mode & 0o777, 0o700);
-        assert.equal((await stat(join(f.lock, 'pid'))).mode & 0o777, 0o600);
-      }
-      child.process.stdin.end();
-      const result = await child.closed;
-      assert.equal(result.code, 0);
-      assert.equal(result.signal, null);
-      for (const line of result.stdout.trim().split('\n')) assert.equal(JSON.parse(line).jsonrpc, '2.0');
-      await assert.rejects(stat(f.lock), { code: 'ENOENT' });
-      assert.equal(await readFile(neighbor, 'utf8'), sensitive);
-    });
-  }
-});
 
-test('active, missing and invalid PID locks refuse and remain untouched', async (t) => {
-  for (const pid of [String(process.pid), undefined, '', '0', '-1', '1.5', 'abc', '9007199254740992']) {
-    await t.test(`PID ${pid ?? 'missing'}`, async (t) => {
-      const f = await fixture(t);
-      await f.existing(pid);
-      refused(await f.launch().closed, pid === String(process.pid) ? 'WRITER_LOCK_ACTIVE' : 'WRITER_LOCK_UNCERTAIN', f.root);
-      assert.equal(await readFile(join(f.lock, 'sentinel'), 'utf8'), sensitive);
-      if (pid === undefined) await assert.rejects(readFile(join(f.lock, 'pid')), { code: 'ENOENT' });
-      else assert.equal(await readFile(join(f.lock, 'pid'), 'utf8'), pid);
-    });
-  }
-});
-
-test('permission and unknown PID probe failures preserve the existing lock', async (t) => {
-  for (const code of ['EPERM', 'EACCES', 'UNKNOWN']) {
-    await t.test(code, async (t) => {
-      const f = await fixture(t);
-      await f.existing(String(process.pid));
-      const prefix = `process.kill = () => { throw Object.assign(new Error(${JSON.stringify(sensitive)}), { code: ${JSON.stringify(code)} }); };`;
-      refused(await f.launch(prefix).closed, 'WRITER_LOCK_UNCERTAIN', f.root);
-      assert.equal(await readFile(join(f.lock, 'pid'), 'utf8'), String(process.pid));
-      assert.equal(await readFile(join(f.lock, 'sentinel'), 'utf8'), sensitive);
-    });
-  }
-});
-
-test('failed stale removal or single reacquisition never starts a writer', async (t) => {
-  for (const operation of ['rm', 'mkdir']) {
-    await t.test(operation, async (t) => {
-      const f = await fixture(t);
-      const pid = await deadPid(f);
-      await f.existing(pid);
-      const prefix = `
-        import fs from 'node:fs/promises';
-        import { syncBuiltinESMExports } from 'node:module';
-        const lock = ${JSON.stringify(f.lock)};
-        const original = fs.${operation};
-        let attempts = 0;
-        fs.${operation} = async (target, options) => {
-          if (target === lock) {
-            attempts++;
-            ${operation === 'mkdir' ? 'if (attempts === 1) return original(target, options);' : ''}
-            throw Object.assign(new Error(${JSON.stringify(sensitive)}), { code: 'EACCES' });
-          }
-          return original(target, options);
-        };
-        syncBuiltinESMExports();
-        process.once('exit', () => process.stderr.write('LOCK_ATTEMPTS=' + attempts + '\\n'));
-      `;
-      const result = await f.launch(prefix).closed;
-      refused(result, 'WRITER_LOCK_RECOVERY_FAILED', f.root);
-      assert.match(result.stderr, new RegExp(`LOCK_ATTEMPTS=${operation === 'rm' ? 1 : 2}\\n`));
-      if (operation === 'rm') {
-        assert.equal(await readFile(join(f.lock, 'pid'), 'utf8'), pid);
-        assert.equal(await readFile(join(f.lock, 'sentinel'), 'utf8'), sensitive);
-      } else await assert.rejects(stat(f.lock), { code: 'ENOENT' });
-    });
-  }
-});
-
-test('PID write failure cleans owned lock and reports only its safe code', async (t) => {
-  const f = await fixture(t);
-  const prefix = `
+function noPhotoshopPrefix(lock, counters = false) {
+  const connection = new URL('../dist/platform/connection.js', import.meta.url).href;
+  return `
     import fs from 'node:fs/promises';
     import { syncBuiltinESMExports } from 'node:module';
-    fs.writeFile = async () => { throw new Error(${JSON.stringify(sensitive)}); };
+    const lock = ${JSON.stringify(lock)};
+    let reads = [], mkdirs = 0, probes = 0;
+    const originalRead = fs.readFile, originalMkdir = fs.mkdir;
+    fs.readFile = async (path, ...args) => {
+      if (path === lock + '/pid' || path === lock + '/state' ||
+          path === lock + '\\\\pid' || path === lock + '\\\\state') reads.push(String(path));
+      return originalRead(path, ...args);
+    };
+    fs.mkdir = async (path, ...args) => {
+      if (path === lock) mkdirs++;
+      return originalMkdir(path, ...args);
+    };
+    const originalKill = process.kill.bind(process);
+    process.kill = (pid, signal) => { probes++; return originalKill(pid, signal); };
     syncBuiltinESMExports();
+    const { PhotoshopConnection } = await import(${JSON.stringify(connection)});
+    for (const key of ['detect', 'inspectDocuments', 'executeScript', 'getVersionInfo'])
+      PhotoshopConnection.prototype[key] = async () => { throw new Error('UNEXPECTED_PHOTOSHOP_ACCESS'); };
+    ${counters ? "process.once('exit', () => process.stderr.write('LOCK_COUNTS=' + JSON.stringify({reads,mkdirs,probes}) + '\\n'));" : ''}
   `;
-  refused(await f.launch(prefix).closed, 'WRITER_LOCK_PID_WRITE_FAILED', f.root);
+}
+
+test('multiple MCP processes handshake without accessing Photoshop or creating a writer lock', async (t) => {
+  const f = await fixture(t);
+  const first = f.launch(noPhotoshopPrefix(f.lock, true));
+  const second = f.launch(noPhotoshopPrefix(f.lock, true));
+  await Promise.all([handshake(first), handshake(second)]);
   await assert.rejects(stat(f.lock), { code: 'ENOENT' });
+  for (const child of [first, second]) {
+    child.send({ jsonrpc: '2.0', id: 3, method: 'tools/call',
+      params: { name: 'photoshop_get_capabilities', arguments: {} } });
+    assert.equal((await child.response(3)).result.isError, undefined);
+    child.process.stdin.end();
+    const result = await child.closed;
+    assert.equal(result.code, 0);
+    assert.match(result.stderr, /LOCK_COUNTS=\{"reads":\[\],"mkdirs":0,"probes":0\}/);
+    assert.doesNotMatch(result.stderr, /UNEXPECTED_PHOTOSHOP_ACCESS/);
+  }
+  await assert.rejects(stat(f.lock), { code: 'ENOENT' });
+});
+
+test('existing writer does not block handshake; ping/version busy only read lock metadata once', async (t) => {
+  const f = await fixture(t);
+  await f.existing(String(process.pid));
+  await writeFile(join(f.lock, 'state'), JSON.stringify({ state: 'idle', owner: 'test-owner' }));
+  const before = await readFile(join(f.lock, 'state'), 'utf8');
+  const child = f.launch(noPhotoshopPrefix(f.lock, true));
+  await handshake(child);
+  for (const [id, name] of [[3, 'photoshop_ping'], [4, 'photoshop_get_version']]) {
+    child.send({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: {} } });
+    const response = (await child.response(id)).result;
+    assert.equal(response.isError, true);
+    assert.equal(response.content[0].text, 'WRITER_LOCK_ACTIVE');
+  }
+  child.send({ jsonrpc: '2.0', id: 5, method: 'tools/call',
+    params: { name: 'photoshop_get_capabilities', arguments: {} } });
+  assert.equal((await child.response(5)).result.isError, undefined);
+  child.process.stdin.end();
+  const result = await child.closed;
+  assert.equal(result.code, 0);
+  const counters = JSON.parse(result.stderr.match(/LOCK_COUNTS=(\{[^\n]+\})/)[1]);
+  assert.equal(counters.mkdirs, 2);
+  assert.equal(counters.probes, 2);
+  assert.equal(counters.reads.length, 4);
+  assert.ok(counters.reads.every((path) => path === join(f.lock, 'pid') || path === join(f.lock, 'state')));
+  assert.doesNotMatch(result.stderr, /UNEXPECTED_PHOTOSHOP_ACCESS/);
+  assert.equal(await readFile(join(f.lock, 'state'), 'utf8'), before);
+  assert.equal(await readFile(join(f.lock, 'sentinel'), 'utf8'), sensitive);
+});
+
+test('uncertain and pending writer metadata survive handshake and denied operations', async (t) => {
+  for (const scenario of ['missing-pid', 'invalid-pid', 'missing-state', 'pending']) {
+    await t.test(scenario, async (t) => {
+      const f = await fixture(t);
+      await f.existing(scenario === 'missing-pid' ? undefined : scenario === 'invalid-pid' ? 'abc' : String(process.pid));
+      if (scenario !== 'missing-state')
+        await writeFile(join(f.lock, 'state'), JSON.stringify({ state: scenario === 'pending' ? 'pending' : 'idle', owner: 'test-owner' }));
+      const child = f.launch(noPhotoshopPrefix(f.lock));
+      await handshake(child);
+      child.send({ jsonrpc: '2.0', id: 3, method: 'tools/call',
+        params: { name: 'photoshop_ping', arguments: {} } });
+      const response = (await child.response(3)).result;
+      assert.equal(response.isError, true);
+      assert.equal(response.content[0].text, scenario === 'pending' ? 'WRITER_LOCK_PENDING' : 'WRITER_LOCK_UNCERTAIN');
+      child.process.stdin.end();
+      assert.equal((await child.closed).code, 0);
+      assert.equal(await readFile(join(f.lock, 'sentinel'), 'utf8'), sensitive);
+    });
+  }
 });
 
 test('unrecognized startup Error is generic even with code-like sensitive content', async (t) => {

@@ -2,7 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { PhotoshopConnection } from '../dist/platform/connection.js';
+import { ScriptExecutionError } from '../dist/platform/windows-executor.js';
+import { OperationLock, operationContext } from '../dist/core/operation-lock.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PhotoshopAPIFactory } from '../dist/api/photoshop-api.js';
+
+function operationTest(name, run) {
+  test(name, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), 'ps-session-test-'));
+    const lock = new OperationLock(join(root, 'operation'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await lock.acquire();
+    try {
+      await operationContext.run({ lock, isStopping: () => false }, () => run(t));
+    } finally {
+      await lock.release();
+    }
+  });
+}
 
 class ActionDescriptor {
   constructor(values = new Map()) {
@@ -70,10 +89,16 @@ function fixture() {
       // Each COM script gets a fresh engine global; application options survive.
       const global = {};
       globals.push(global);
-      const result = runInNewContext(script, {
+      let result;
+      try {
+        result = runInNewContext(script, {
         $: { global, engineName: 'SS main' }, app, ActionDescriptor,
         stringIDToTypeID: (value) => value, DialogModes: { NO: 'NO' },
-      });
+        });
+      } catch (error) {
+        // The VM completed the script, including guard errors; this is not a lost response.
+        throw new ScriptExecutionError(error.message, 'finished');
+      }
       if (control.responseError) {
         const error = control.responseError;
         control.responseError = null;
@@ -94,7 +119,7 @@ function fixture() {
   return { connection, app, control, options, puts, globals, target, nestedLayer, dispatch, unscopedApi };
 }
 
-test('one CustomOptions installation supports repeated inspections and both scoped guards with fresh globals', async () => {
+operationTest('one CustomOptions installation supports repeated inspections and both scoped guards with fresh globals', async () => {
   const f = fixture();
   for (let i = 0; i < 3; i++) {
     assert.deepEqual(await f.connection.inspectDocuments(), [{ id: 99, path: null }, { id: 7, path: null }]);
@@ -113,7 +138,7 @@ test('one CustomOptions installation supports repeated inspections and both scop
 });
 
 for (const state of ['missing', 'mismatch', 'descriptor-without-token', 'lookup-unavailable']) {
-  test(`${state} identity rejects inspection and both guards before operations without reinstalling`, async () => {
+  operationTest(`${state} identity rejects inspection and both guards before operations without reinstalling`, async () => {
     const f = fixture();
     await f.connection.inspectDocuments();
     const key = f.puts[0].key;
@@ -137,7 +162,7 @@ for (const state of ['missing', 'mismatch', 'descriptor-without-token', 'lookup-
   });
 }
 
-test('an application restart loses options and a new Connection gets its own identity', async () => {
+operationTest('an application restart loses options and a new Connection gets its own identity', async () => {
   const f = fixture();
   await f.connection.inspectDocuments();
   f.options.clear();
@@ -153,20 +178,21 @@ test('an application restart loses options and a new Connection gets its own ide
   await assert.rejects(f.connection.inspectDocuments(), /PHOTOSHOP_SESSION_CHANGED/);
 });
 
-test('lost first response never repeats the completed installation', async () => {
+operationTest('lost first response never repeats the completed installation', async () => {
   const f = fixture();
-  const error = new Error('CHANNEL_RESPONSE_LOST');
+  const error = new ScriptExecutionError('CHANNEL_RESPONSE_LOST', 'unknown');
   f.control.responseError = error;
   await assert.rejects(f.connection.inspectDocuments(), (actual) => actual === error);
   assert.equal(f.connection.epochInstalled, true);
-  await f.connection.inspectDocuments();
-  await f.dispatch(true);
+  await assert.rejects(f.connection.inspectDocuments(), /SESSION_FAULTED_RESTART_REQUIRED/);
+  await assert.rejects(f.dispatch(true), /SESSION_FAULTED_RESTART_REQUIRED/);
+  assert.equal(f.connection.isFaulted, true);
   assert.equal(f.puts.length, 1);
 });
 
-test('failed first dispatch does not retry installation and fails closed thereafter', async () => {
+operationTest('failed first dispatch does not retry installation and fails closed thereafter', async () => {
   const f = fixture();
-  const error = new Error('CHANNEL_UNAVAILABLE');
+  const error = new ScriptExecutionError('CHANNEL_UNAVAILABLE', 'not-started');
   f.control.executionError = error;
   await assert.rejects(f.connection.inspectDocuments(), (actual) => actual === error);
   assert.equal(f.connection.epochInstalled, true);
@@ -176,7 +202,7 @@ test('failed first dispatch does not retry installation and fails closed thereaf
   assert.equal(f.app.operations, 0);
 });
 
-test('failed installation preserves its error and is not attempted again', async () => {
+operationTest('failed installation preserves its error and is not attempted again', async () => {
   const f = fixture();
   f.control.putError = new Error('OPTIONS_WRITE_UNAVAILABLE');
   await assert.rejects(f.connection.inspectDocuments(), /OPTIONS_WRITE_UNAVAILABLE/);
@@ -185,13 +211,13 @@ test('failed installation preserves its error and is not attempted again', async
   assert.equal(f.puts.length, 0);
 });
 
-test('unrelated inspection, transport and operation errors propagate without reinstalling', async () => {
+operationTest('unrelated inspection, transport and operation errors propagate without reinstalling', async () => {
   const f = fixture();
   f.control.documentError = new Error('DOCUMENT_ENUMERATION_FAILED');
   await assert.rejects(f.connection.inspectDocuments(), /DOCUMENT_ENUMERATION_FAILED/);
   f.control.documentError = null;
   await f.connection.inspectDocuments();
-  const error = new Error('CHANNEL_FAILURE');
+  const error = new ScriptExecutionError('CHANNEL_FAILURE', 'not-started');
   f.control.executionError = error;
   await assert.rejects(f.dispatch(true), (actual) => actual === error);
   await assert.rejects(f.dispatch(true, "throw new Error('OPERATION_FAILED');"), /OPERATION_FAILED/);
@@ -201,7 +227,7 @@ test('unrelated inspection, transport and operation errors propagate without rei
   assert.equal(f.app.operations, 1);
 });
 
-test('scope recheck rejection and document/layer targeting still precede operation', async () => {
+operationTest('scope recheck rejection and document/layer targeting still precede operation', async () => {
   const f = fixture();
   await f.connection.inspectDocuments();
   const api = await f.unscopedApi();
@@ -222,7 +248,7 @@ test('scope recheck rejection and document/layer targeting still precede operati
   assert.equal(f.puts.length, 1);
 });
 
-test('unscoped version queries and factory creation neither install nor restore identity', async () => {
+operationTest('unscoped version queries and factory creation neither install nor restore identity', async () => {
   const f = fixture();
   assert.equal((await f.connection.getVersionInfo()).canExecuteScript, true);
   await f.unscopedApi();

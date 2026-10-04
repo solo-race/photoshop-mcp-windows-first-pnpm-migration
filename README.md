@@ -84,19 +84,34 @@ that exact tool. Overwriting additionally requires project `allow_overwrite` and
 the exact path in task `overwrite_paths`. Caller booleans cannot supply approval.
 Closing with an implicit save is refused: first explicitly save a permitted copy.
 
-Requests are serialized within the server. Document/layer ID and expected saved
-path are rechecked in the **same Photoshop script** that performs the operation.
-Paths and grants are rechecked before COM dispatch. A per-temporary-directory exclusive writer lock rejects a second MCP process.
-Use one host and one OS user/session for Photoshop; different temporary directories
-or other automation software are outside that coordination boundary. On startup,
-a stale lock is removed automatically only when its valid recorded PID probe
-returns `ESRCH`; the server then attempts to acquire the lock once. A live PID,
-missing or invalid PID, or uncertain probe result rejects startup and preserves
-the lock. Recovery failure also rejects startup. Startup failures report a fixed
-`WRITER_LOCK_*` diagnostic or the generic `STARTUP_FAILED` code on stderr.
-These checks are
-not an OS sandbox against arbitrary same-user processes, malicious plugins,
-Photoshop file-format exploits, or hostile filesystem races.
+Multiple MCP processes may start and complete stdio handshakes without accessing
+Photoshop or holding its operation lock. Requests are serialized locally. Before
+the complete policy check, each outer tool call acquires the same temporary-directory
+`photoshop-mcp-single-writer` directory lock. A sequence holds it for all steps;
+nested calls still pass through the registry and grants. Only
+`photoshop_get_capabilities` is exempt; ping and version acquire the lock.
+Busy operations immediately return a `WRITER_LOCK_*` error without inspecting
+Photoshop or retrying. Different temporary directories, OS sessions, and other
+automation software remain outside this coordination boundary.
+
+Document/layer ID and expected saved path are rechecked in the **same Photoshop
+script** that performs the operation. Paths and grants are rechecked before COM
+dispatch. Each dispatch first persists `pending` in the owned lock. Only definite
+`not-started` or `finished` completion returns it to trusted `idle`. A returned
+script-error JSON is a finished dispatch. Timeout, output limits, killed or
+disconnected execution, and unclassified post-dispatch errors leave a sticky fault
+and retain pending and the lock, even if a handler catches the error. Neither stop
+nor restart automatically clears an uncertain operation.
+
+Stale-lock recovery requires a valid PID, trusted idle state, and an `ESRCH`
+probe. An adjacent fixed `.recovery` directory serializes recovery; its owner
+rereads state and probes the PID before one removal and one acquisition attempt.
+A new owner winning that gap is preserved. Live, unknown, untrusted, and pending
+owners are never automatically removed, nor are existing recovery directories.
+Shutdown rejects new and queued calls with `SERVER_STOPPING`, drains them, then
+waits for the active call; it never releases an uncertain dispatch.
+These checks are not an OS sandbox against arbitrary same-user processes,
+malicious plugins, Photoshop file-format exploits, or hostile filesystem races.
 
 ### Removed / intentionally unavailable
 
@@ -109,8 +124,34 @@ Photoshop file-format exploits, or hostile filesystem races.
 
 `photoshop_run_sequence` is bounded, serial, and rechecks every step. Nested
 workflows and cross-project steps are denied. It stops on failure and **does not
-roll back** prior edits/files. On execution timeout the connection is faulted;
-restart and inspect Photoshop manually rather than retrying uncertain work.
+roll back** prior edits/files. Unknown execution completion faults the connection
+and retains pending ownership; inspect Photoshop manually rather than retrying
+uncertain work. Offline checks do not prove Photoshop completion.
+
+### Pixel fill and rectangle selection
+
+`photoshop_fill_layer` requires `scope: "selection" | "layer"` and integer
+`red`, `green`, `blue` values from 0 to 255. It accepts only RGB documents at
+8 bits/channel, an editable ordinary pixel layer, and the three component color
+channels. Locked/background layers, smart objects, masks and Quick Mask targets
+are refused; the tool does not unlock or rasterize layers.
+
+`selection` requires a nonempty selection and fills its existing shape without
+replacing or clearing it. `layer` requires no selection, fills the whole layer,
+and restores the absence of selection even if fill fails. Successful responses
+contain `scope`, `actualbounds` (canvas pixel `[left, top, right, bottom]`, clipped
+to the canvas for selection scope), and `selection_preserved: true`. The latter
+means preserving the original selection state, including no selection for layer
+scope. Bounds describe the operation's scope, not a measured pixel difference.
+
+`photoshop_select_rectangle` requires finite integer pixel coordinates satisfying
+`0 <= left < right <= width` and `0 <= top < bottom <= height`. The rectangle is
+half-open, replaces the selection, and requests zero feather and no antialiasing.
+Runtime target and canvas checks precede mutation; script failures reach the tool
+response. Native selection shape, channel targeting, pixel bytes and PSD
+persistence still require the disposable-PSD gates in
+[the fill contract plan](docs/plans/002-selection-fill-contract.md); offline
+checks alone do not prove those behaviors.
 
 ### Local layer previews
 

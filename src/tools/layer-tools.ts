@@ -67,30 +67,37 @@ export function createLayerTools(connection: PhotoshopConnection): ToolDefinitio
     {
       tool: {
         name: 'photoshop_fill_layer',
-        description: 'Fill the active layer with a color',
+        description:
+          'Fill an editable RGB8 pixel layer within an explicit selection or layer scope',
         inputSchema: {
           type: 'object',
           properties: {
+            scope: {
+              type: 'string',
+              enum: ['selection', 'layer'],
+              description:
+                'Selection preserves the existing selection; layer requires no selection',
+            },
             red: {
-              type: 'number',
+              type: 'integer',
               description: 'Red component (0-255)',
               minimum: 0,
               maximum: 255,
             },
             green: {
-              type: 'number',
+              type: 'integer',
               description: 'Green component (0-255)',
               minimum: 0,
               maximum: 255,
             },
             blue: {
-              type: 'number',
+              type: 'integer',
               description: 'Blue component (0-255)',
               minimum: 0,
               maximum: 255,
             },
           },
-          required: ['red', 'green', 'blue'],
+          required: ['scope', 'red', 'green', 'blue'],
         },
       },
       handler: async (args) => fillLayer(connection, args),
@@ -216,19 +223,28 @@ async function fillLayer(
   const red = args.red as number;
   const green = args.green as number;
   const blue = args.blue as number;
+  const scope = args.scope;
 
   try {
+    if (scope !== 'selection' && scope !== 'layer') {
+      throw new Error('Fill scope must be selection or layer');
+    }
+    if (
+      ![red, green, blue].every((value) => Number.isInteger(value) && value >= 0 && value <= 255)
+    ) {
+      throw new Error('RGB components must be integers from 0 to 255');
+    }
     const apiFactory = new PhotoshopAPIFactory(connection);
     const api = await apiFactory.createAPI();
 
-    const script = ExtendScriptSnippets.fillLayer(red, green, blue);
-    await api.executeScript(script);
+    const script = ExtendScriptSnippets.fillLayer(scope, red, green, blue);
+    const result = await api.executeScript(script);
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: `Layer filled with RGB(${red}, ${green}, ${blue})`,
+          text: JSON.stringify(result),
         },
       ],
     };

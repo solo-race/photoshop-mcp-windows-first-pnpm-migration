@@ -4,6 +4,7 @@ import { access, constants } from 'fs/promises';
 import { basename, dirname } from 'path';
 import { Logger } from '../utils/logger.js';
 import { PhotoshopInfo } from './connection.js';
+import { WindowsProcessQuery, WindowsProcessQueryError } from './windows-process-query.js';
 
 const execAsync = promisify(exec);
 
@@ -14,6 +15,7 @@ interface RegistryEntry {
 
 export class WindowsDetector {
   private logger: Logger;
+  private processQuery = new WindowsProcessQuery();
 
   constructor() {
     this.logger = new Logger('WindowsDetector');
@@ -35,6 +37,7 @@ export class WindowsDetector {
       const registryInfo = await this.detectFromRegistry();
       if (registryInfo) return registryInfo;
     } catch (error) {
+      if (error instanceof WindowsProcessQueryError) throw error;
       this.logger.warn('Registry detection failed:', error);
     }
 
@@ -68,6 +71,7 @@ export class WindowsDetector {
             if (info) return info;
           }
         } catch (_error) {
+          if (_error instanceof WindowsProcessQueryError) throw _error;
           // Continue to next registry path
           continue;
         }
@@ -88,10 +92,12 @@ export class WindowsDetector {
             if (info) return info;
           }
         } catch (_error) {
+          if (_error instanceof WindowsProcessQueryError) throw _error;
           continue;
         }
       }
     } catch (error) {
+      if (error instanceof WindowsProcessQueryError) throw error;
       this.logger.error('Registry query failed:', error);
     }
 
@@ -182,6 +188,7 @@ export class WindowsDetector {
         appName,
       };
     } catch (_error) {
+      if (_error instanceof WindowsProcessQueryError) throw _error;
       return null;
     }
   }
@@ -203,11 +210,6 @@ export class WindowsDetector {
   }
 
   private async checkIfRunning(): Promise<boolean> {
-    try {
-      const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq Photoshop.exe"');
-      return stdout.toLowerCase().includes('photoshop.exe');
-    } catch (_error) {
-      return false;
-    }
+    return await this.processQuery.isPhotoshopRunning();
   }
 }

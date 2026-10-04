@@ -5,28 +5,50 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Logger } from '../utils/logger.js';
 import { ScriptExecutor } from './script-executor.js';
+import { operationContext, type DispatchCompletion } from '../core/operation-lock.js';
+import { WindowsProcessQuery } from './windows-process-query.js';
 
 const execAsync = promisify(exec);
 
+export class ScriptExecutionError extends Error {
+  constructor(
+    message: string,
+    readonly completion: DispatchCompletion
+  ) {
+    super(message);
+    this.name = 'ScriptExecutionError';
+  }
+}
+
 export class WindowsExecutor implements ScriptExecutor {
   private logger: Logger;
+  private processQuery = new WindowsProcessQuery();
   private scriptQueue: Array<() => Promise<unknown>> = [];
   private isProcessing = false;
+  private faulted = false;
 
   constructor() {
     this.logger = new Logger('WindowsExecutor');
   }
 
   async execute(script: string, timeout: number = 30000): Promise<unknown> {
+    const isStopping = operationContext.getStore()?.isStopping;
     return new Promise((resolve, reject) => {
       this.scriptQueue.push(async () => {
         try {
-          const result = await this.executeScript(script, timeout);
+          if (this.faulted)
+            throw new ScriptExecutionError('SESSION_FAULTED_RESTART_REQUIRED', 'unknown');
+          const result = await this.executeScript(script, timeout, isStopping);
           resolve(result);
           return result;
         } catch (error) {
-          reject(error);
-          throw error;
+          const classified =
+            error instanceof ScriptExecutionError
+              ? error
+              : new ScriptExecutionError('SCRIPT_EXECUTION_FAILED', 'unknown');
+          if (classified.completion === 'unknown') this.faulted = true;
+          reject(classified);
+          throw classified;
         }
       });
 
@@ -55,21 +77,56 @@ export class WindowsExecutor implements ScriptExecutor {
     this.isProcessing = false;
   }
 
-  private async executeScript(script: string, timeout: number): Promise<unknown> {
-    const directory = await mkdtemp(join(tmpdir(), 'photoshop-mcp-'));
-    const tempScriptPath = join(directory, 'operation.jsx');
-    const vbsPath = join(directory, 'operation.vbs');
+  private async executeScript(
+    script: string,
+    timeout: number,
+    isStopping?: () => boolean
+  ): Promise<unknown> {
+    let directory: string | undefined;
+    let completion: DispatchCompletion = 'not-started';
+    let failure: ScriptExecutionError | undefined;
+    let result: unknown;
     try {
+      directory = await mkdtemp(join(tmpdir(), 'photoshop-mcp-'));
+      const tempScriptPath = join(directory, 'operation.jsx');
+      const vbsPath = join(directory, 'operation.vbs');
       await writeFile(tempScriptPath, script, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
       await writeFile(vbsPath, this.createVBSWrapper(tempScriptPath), {
         encoding: 'utf8',
         flag: 'wx',
         mode: 0o600,
       });
-      return await this.runVbsScript(vbsPath, timeout);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
+      completion = 'unknown';
+      result = await this.runVbsScript(vbsPath, timeout, isStopping);
+      completion = 'finished';
+    } catch (error) {
+      failure =
+        error instanceof ScriptExecutionError
+          ? error
+          : new ScriptExecutionError('SCRIPT_EXECUTION_FAILED', completion);
     }
+    if (directory) {
+      try {
+        await this.removeTempDirectory(directory);
+      } catch {
+        // A cleanup failure must never replace the original execution failure.
+        if (!failure) failure = new ScriptExecutionError('SCRIPT_CLEANUP_FAILED', completion);
+        else this.logger.warn('Script temporary directory cleanup failed');
+      }
+    }
+    if (failure) throw failure;
+    return result;
+  }
+
+  private async removeTempDirectory(directory: string): Promise<void> {
+    await rm(directory, { recursive: true, force: true });
+  }
+
+  private spawnScriptProcess(vbsPath: string) {
+    return spawn('cscript', ['//nologo', vbsPath], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
   }
 
   private createVBSWrapper(jsxPath: string): string {
@@ -96,16 +153,31 @@ End If
 `.trim();
   }
 
-  private async runVbsScript(vbsPath: string, timeout: number): Promise<unknown> {
+  private async runVbsScript(
+    vbsPath: string,
+    timeout: number,
+    isStopping?: () => boolean
+  ): Promise<unknown> {
     return await new Promise((resolve, reject) => {
-      const child = spawn('cscript', ['//nologo', vbsPath], {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      // File preparation awaited after the connection's check. Recheck without
+      // yielding between this decision and creating the dispatch process.
+      if (isStopping?.()) {
+        reject(new ScriptExecutionError('SERVER_STOPPING', 'not-started'));
+        return;
+      }
+      let child: ReturnType<WindowsExecutor['spawnScriptProcess']>;
+      try {
+        child = this.spawnScriptProcess(vbsPath);
+      } catch {
+        reject(new ScriptExecutionError('SCRIPT_SPAWN_FAILED', 'not-started'));
+        return;
+      }
 
       let stdout = '';
       let stderr = '';
       let settled = false;
+      let started = false;
+      let timeoutId: ReturnType<typeof setTimeout>;
 
       const settle = (error: Error | null, value?: unknown) => {
         if (settled) {
@@ -130,7 +202,7 @@ End If
         stdout += chunk;
         if (stdout.length > 4 * 1024 * 1024) {
           void this.terminateProcessTree(child.pid);
-          settle(new Error('OUTPUT_LIMIT'));
+          settle(new ScriptExecutionError('OUTPUT_LIMIT', 'unknown'));
         }
       });
 
@@ -138,12 +210,20 @@ End If
         stderr += chunk;
         if (stderr.length > 1024 * 1024) {
           void this.terminateProcessTree(child.pid);
-          settle(new Error('OUTPUT_LIMIT'));
+          settle(new ScriptExecutionError('OUTPUT_LIMIT', 'unknown'));
         }
       });
 
-      child.on('error', (error) => {
-        settle(error instanceof Error ? error : new Error(String(error)));
+      child.on('spawn', () => {
+        started = true;
+      });
+      child.on('error', () => {
+        settle(
+          new ScriptExecutionError(
+            'SCRIPT_PROCESS_FAILED',
+            !started && child.pid === undefined ? 'not-started' : 'unknown'
+          )
+        );
       });
 
       child.on('close', (code) => {
@@ -159,21 +239,25 @@ End If
         if (code !== 0) {
           const message =
             trimmedStderr || stdout.trim() || `cscript exited with code ${code ?? 'unknown'}`;
-          settle(new Error(message));
+          settle(new ScriptExecutionError(message, 'unknown'));
           return;
         }
 
         try {
           settle(null, this.parseResult(stdout));
         } catch (error) {
-          settle(error instanceof Error ? error : new Error(String(error)));
+          settle(
+            error instanceof ScriptExecutionError
+              ? error
+              : new ScriptExecutionError('SCRIPT_RESPONSE_FAILED', 'unknown')
+          );
         }
       });
 
-      const timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         this.logger.warn(`Script execution timed out after ${timeout}ms`);
         void this.terminateProcessTree(child.pid);
-        settle(new Error('Script execution timeout'));
+        settle(new ScriptExecutionError('Script execution timeout', 'unknown'));
       }, timeout);
     });
   }
@@ -195,7 +279,7 @@ End If
 
     // Check for error
     if (trimmed.startsWith('ERROR:')) {
-      throw new Error(trimmed.substring(6).trim());
+      throw new ScriptExecutionError(trimmed.substring(6).trim(), 'unknown');
     }
 
     // Try to parse as JSON
@@ -208,12 +292,7 @@ End If
   }
 
   async isPhotoshopRunning(): Promise<boolean> {
-    try {
-      const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq Photoshop.exe"');
-      return stdout.toLowerCase().includes('photoshop.exe');
-    } catch (_error) {
-      return false;
-    }
+    return await this.processQuery.isPhotoshopRunning();
   }
 
   async launchPhotoshop(_photoshopPath: string): Promise<void> {

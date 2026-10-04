@@ -2,6 +2,7 @@ import { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { Logger } from '../utils/logger.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ToolPolicy, disabledTools } from '../security/tool-policy.js';
+import { OperationLock, operationContext } from './operation-lock.js';
 
 export interface ToolHandler {
   (args: Record<string, unknown>): Promise<CallToolResult>;
@@ -18,10 +19,20 @@ export class ToolRegistry {
   private logger: Logger;
   private tools: Map<string, ToolDefinition>;
 
-  private queue: Promise<unknown> = Promise.resolve();
-  private inCall = new AsyncLocalStorage<boolean>();
+  private queue: Array<{
+    run: () => Promise<ToolResult>;
+    resolve: (result: ToolResult) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private active?: Promise<void>;
+  private inCall = new AsyncLocalStorage<{ active: boolean }>();
+  private stopped = false;
+  private stopping?: Promise<void>;
 
-  constructor(private policy?: ToolPolicy) {
+  constructor(
+    private policy?: ToolPolicy,
+    private operationLock = new OperationLock()
+  ) {
     this.logger = new Logger('ToolRegistry');
     this.tools = new Map();
   }
@@ -58,17 +69,73 @@ export class ToolRegistry {
   }
 
   async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    if (this.stopped) throw new Error('SERVER_STOPPING');
+    if (disabledTools.has(name)) throw new Error('TOOL_DISABLED');
+    const definition = this.tools.get(name);
+    if (!definition) throw new Error('TOOL_NOT_FOUND');
+    if (!this.policy) throw new Error('POLICY_NOT_INITIALIZED');
+    const policy = this.policy;
     const run = async () => {
-      if (disabledTools.has(name)) throw new Error('TOOL_DISABLED');
-      const definition = this.tools.get(name);
-      if (!definition) throw new Error('TOOL_NOT_FOUND');
-      if (!this.policy) throw new Error('POLICY_NOT_INITIALIZED');
-      return await this.policy.run(definition, args);
+      if (this.stopped) throw new Error('SERVER_STOPPING');
+      if (name !== 'photoshop_get_capabilities' && this.operationLock.faulted)
+        throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
+      return await policy.run(definition, args);
     };
-    if (this.inCall.getStore()) return await run();
-    const result = this.queue.then(() => this.inCall.run(true, run));
-    this.queue = result.catch(() => undefined);
-    return await result;
+    if (this.inCall.getStore()?.active) return await run();
+    return await new Promise<ToolResult>((resolve, reject) => {
+      this.queue.push({
+        resolve,
+        reject,
+        run: async () => {
+          if (this.stopped) throw new Error('SERVER_STOPPING');
+          const call = { active: true };
+          const locked = name !== 'photoshop_get_capabilities';
+          if (locked) await this.operationLock.acquire();
+          try {
+            return await this.inCall.run(call, async () => {
+              const result = locked
+                ? await operationContext.run(
+                    {
+                      lock: this.operationLock,
+                      isStopping: () => this.stopped,
+                    },
+                    run
+                  )
+                : await run();
+              if (locked && this.operationLock.faulted)
+                throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
+              return result;
+            });
+          } finally {
+            call.active = false;
+            if (locked) await this.operationLock.release();
+          }
+        },
+      });
+      this.startNext();
+    });
+  }
+
+  private startNext(): void {
+    if (this.active || this.stopped) return;
+    const next = this.queue.shift();
+    if (!next) return;
+    this.active = Promise.resolve()
+      .then(next.run)
+      .then(next.resolve, next.reject)
+      .finally(() => {
+        this.active = undefined;
+        this.startNext();
+      });
+  }
+
+  stop(): Promise<void> {
+    if (!this.stopping) {
+      this.stopped = true;
+      for (const queued of this.queue.splice(0)) queued.reject(new Error('SERVER_STOPPING'));
+      this.stopping = this.active ?? Promise.resolve();
+    }
+    return this.stopping;
   }
 
   clear(): void {

@@ -14,7 +14,8 @@ export interface ScriptScope {
 import { Logger } from '../utils/logger.js';
 import { PhotoshopDetector } from './detector.js';
 import { ScriptExecutor } from './script-executor.js';
-import { WindowsExecutor } from './windows-executor.js';
+import { WindowsExecutor, ScriptExecutionError } from './windows-executor.js';
+import { OperationLock, operationContext } from '../core/operation-lock.js';
 import { MacOSExecutor } from './macos-executor.js';
 import type { DiagnosticsInfo, ExecutionMode } from '../core/models.js';
 
@@ -29,6 +30,8 @@ export interface PhotoshopInfo {
 export class PhotoshopConnection {
   private scope = new AsyncLocalStorage<ScriptScope>();
   private faulted = false;
+  private directLock = new OperationLock();
+  private directQueue: Promise<unknown> = Promise.resolve();
   private epoch = randomUUID();
   private epochInstalled = false;
   private logger: Logger;
@@ -36,6 +39,10 @@ export class PhotoshopConnection {
   private executor: ScriptExecutor;
   private photoshopInfo: PhotoshopInfo | null = null;
   private macosExecutor?: MacOSExecutor;
+
+  get isFaulted(): boolean {
+    return this.faulted;
+  }
 
   constructor() {
     this.logger = new Logger('PhotoshopConnection');
@@ -135,8 +142,27 @@ export class PhotoshopConnection {
   }
 
   async executeScript(script: string, timeout?: number): Promise<unknown> {
+    const operation = operationContext.getStore();
+    if (!operation) {
+      const result = this.directQueue.then(async () => {
+        if (this.faulted) throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
+        await this.directLock.acquire();
+        try {
+          return await operationContext.run(
+            { lock: this.directLock, isStopping: () => false },
+            () => this.executeScript(script, timeout)
+          );
+        } finally {
+          await this.directLock.release();
+        }
+      });
+      this.directQueue = result.catch(() => undefined);
+      return await result;
+    }
     try {
       if (this.faulted) throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
+      if (operation.lock.faulted) throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
+      if (operation.isStopping()) throw new Error('SERVER_STOPPING');
       const scope = this.scope.getStore();
       if (scope) await scope.recheck();
       const detected = await this.ensureDetected();
@@ -155,15 +181,41 @@ export class PhotoshopConnection {
       }
 
       // Execute the script
-      const guarded = scope ? this.guardScript(script, scope) : script;
-      const result = await this.executor.execute(guarded, timeout);
+      // Scope guard failures are completed script responses, not COM transport failures.
+      const guarded = scope
+        ? `(function() {
+        try { return ${this.guardScript(script, scope)} }
+        catch (error) { return JSON.stringify({__mcp_scope_error: String(error.message || error)}); }
+      })();`
+        : script;
+      if (operation.isStopping()) throw new Error('SERVER_STOPPING');
+      await operation.lock.beginDispatch();
+      let result: unknown;
+      if (operation.isStopping()) {
+        await operation.lock.completeDispatch('not-started');
+        throw new Error('SERVER_STOPPING');
+      }
+      try {
+        result = await this.executor.execute(guarded, timeout);
+      } catch (error) {
+        const classified =
+          error instanceof ScriptExecutionError
+            ? error
+            : new ScriptExecutionError('SCRIPT_EXECUTION_FAILED', 'unknown');
+        if (classified.completion === 'unknown') this.faulted = true;
+        await operation.lock.completeDispatch(classified.completion);
+        throw classified;
+      }
+      await operation.lock.completeDispatch('finished');
+      if (result && typeof result === 'object' && '__mcp_scope_error' in result)
+        throw new ScriptExecutionError(String(result.__mcp_scope_error), 'finished');
       this.photoshopInfo = {
         ...detected,
         isRunning: true,
       };
       return result;
     } catch (error) {
-      if (/timeout|limit/i.test(String(error))) this.faulted = true;
+      if (operation?.lock.faulted) this.faulted = true;
       this.logger.error('Script execution failed');
       throw error;
     }
@@ -241,8 +293,7 @@ export class PhotoshopConnection {
     const expected = toExtendScriptValue(scope.documentPath ?? null);
     // Selection and operation run in ONE Photoshop script. A user switching the
     // active document between MCP calls cannot redirect the operation.
-    return `
-(function() {
+    return `(function() {
   ${this.checkEpochScript()}
   var target = null;
   for (var i = 0; i < app.documents.length; i++) {

@@ -25,10 +25,6 @@ import { createSelectionTools } from '../tools/selection-tools.js';
 import { createLayerOrderingTools } from '../tools/layer-ordering-tools.js';
 import { createAdvancedTools } from '../tools/advanced-tools.js';
 
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
-import { rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { ProjectPolicy } from '../security/project-policy.js';
 import { ToolPolicy } from '../security/tool-policy.js';
 
@@ -37,8 +33,6 @@ export class PhotoshopMCPServer {
   private logger = new Logger('PhotoshopMCPServer');
   private session = new Session({ autoConnect: false });
   private toolRegistry?: ToolRegistry;
-  private writerLock = join(tmpdir(), 'photoshop-mcp-single-writer');
-  private ownsLock = false;
   private stopping?: Promise<void>;
 
   constructor() {
@@ -150,64 +144,13 @@ export class PhotoshopMCPServer {
     });
   }
 
-  private async acquireWriterLock(): Promise<void> {
-    try {
-      await mkdir(this.writerLock, { mode: 0o700 });
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') {
-        throw new Error('WRITER_LOCK_ACQUIRE_FAILED');
-      }
-    }
-
-    let pidText: string;
-    try {
-      pidText = (await readFile(join(this.writerLock, 'pid'), 'utf8')).trim();
-    } catch {
-      throw new Error('WRITER_LOCK_UNCERTAIN');
-    }
-    const pid = Number(pidText);
-    if (!/^[1-9][0-9]*$/.test(pidText) || !Number.isSafeInteger(pid)) {
-      throw new Error('WRITER_LOCK_UNCERTAIN');
-    }
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code !== 'ESRCH') {
-        throw new Error('WRITER_LOCK_UNCERTAIN');
-      }
-      // Only a confirmed dead writer permits deleting this exact lock and one retry.
-      try {
-        await rm(this.writerLock, { recursive: true, force: true });
-        await mkdir(this.writerLock, { mode: 0o700 });
-      } catch {
-        throw new Error('WRITER_LOCK_RECOVERY_FAILED');
-      }
-      return;
-    }
-    throw new Error('WRITER_LOCK_ACTIVE');
-  }
-
   async start(): Promise<void> {
     this.registerTools(await ProjectPolicy.load());
     this.setupHandlers();
-    await this.acquireWriterLock();
-    this.ownsLock = true;
-    process.once('exit', () => {
-      if (this.ownsLock) rmSync(this.writerLock, { recursive: true, force: true });
-    });
     process.stdin.once('end', () => {
       void this.stop();
     });
     try {
-      try {
-        await writeFile(join(this.writerLock, 'pid'), String(process.pid), {
-          flag: 'wx',
-          mode: 0o600,
-        });
-      } catch {
-        throw new Error('WRITER_LOCK_PID_WRITE_FAILED');
-      }
       this.server.onclose = () => {
         void this.stop();
       };
@@ -222,19 +165,15 @@ export class PhotoshopMCPServer {
     }
     this.logger.info('Project-scoped MCP connected via stdio; Photoshop has not been launched.');
   }
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
     if (!this.stopping) {
+      // Seal registry ingress synchronously, then wait for queued/active calls before SDK close.
+      const drained = this.toolRegistry?.stop() ?? Promise.resolve();
       this.stopping = Promise.resolve().then(async () => {
-        try {
-          await this.server.close();
-        } finally {
-          if (this.ownsLock) {
-            this.ownsLock = false;
-            await rm(this.writerLock, { recursive: true, force: true });
-          }
-        }
+        await drained;
+        await this.server.close();
       });
     }
-    return await this.stopping;
+    return this.stopping;
   }
 }

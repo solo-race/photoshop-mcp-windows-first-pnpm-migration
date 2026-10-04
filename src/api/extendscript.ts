@@ -316,19 +316,74 @@ export const ExtendScriptSnippets = {
   /**
    * Fill layer with color
    */
-  fillLayer: (red: number, green: number, blue: number) => `
+  fillLayer: (scope: 'selection' | 'layer', red: number, green: number, blue: number) => `
     if (app.documents.length === 0) {
       throw new Error('No active document');
     }
     var doc = app.activeDocument;
+    var scope = ${scriptValue(scope)};
+    var components = [${scriptValue(red)}, ${scriptValue(green)}, ${scriptValue(blue)}];
+    if (scope !== 'selection' && scope !== 'layer') throw new Error('Invalid fill scope');
+    for (var i = 0; i < components.length; i++) {
+      if (!isFinite(components[i]) || Math.floor(components[i]) !== components[i] || components[i] < 0 || components[i] > 255) {
+        throw new Error('RGB components must be integers from 0 to 255');
+      }
+    }
+    if (doc.mode !== DocumentMode.RGB || doc.bitsPerChannel !== BitsPerChannelType.EIGHT) {
+      throw new Error('Fill requires an RGB8 document');
+    }
+    var layer = doc.activeLayer;
+    if (!layer || layer.typename !== 'ArtLayer' || layer.kind !== LayerKind.NORMAL || layer.isBackgroundLayer || layer.allLocked || layer.pixelsLocked || layer.transparentPixelsLocked) {
+      throw new Error('Fill requires an editable ordinary pixel layer');
+    }
+    var parent = layer.parent;
+    while (parent && parent.typename === 'LayerSet') {
+      if (parent.allLocked) throw new Error('Layer parent is locked');
+      parent = parent.parent;
+    }
+    var channels;
+    try {
+      channels = doc.activeChannels;
+    } catch (channelError) {
+      throw new Error('Fill cannot verify RGB target: ' + channelError.message);
+    }
+    var colors = doc.componentChannels;
+    if (doc.quickMaskMode || channels.length !== 3 || colors.length !== 3) throw new Error('Fill requires all RGB color channels');
+    for (var c = 0; c < colors.length; c++) {
+      var matches = 0;
+      for (var a = 0; a < channels.length; a++) {
+        if (channels[a].kind === ChannelType.COMPONENT && channels[a].name === colors[c].name) matches++;
+      }
+      if (matches !== 1) throw new Error('Fill requires all RGB color channels');
+    }
+    var ref = new ActionReference();
+    ref.putEnumerated(charIDToTypeID('Dcmn'), charIDToTypeID('Ordn'), charIDToTypeID('Trgt'));
+    var hasSelection = executeActionGet(ref).hasKey(stringIDToTypeID('selection'));
+    if (scope === 'selection' && !hasSelection) throw new Error('Selection scope requires a selection');
+    if (scope === 'layer' && hasSelection) throw new Error('Layer scope requires no selection');
+    var width = doc.width.as('px');
+    var height = doc.height.as('px');
+    var actualbounds = [0, 0, width, height];
+    if (hasSelection) {
+      var selected = doc.selection.bounds;
+      actualbounds = [Math.max(0, selected[0].as('px')), Math.max(0, selected[1].as('px')), Math.min(width, selected[2].as('px')), Math.min(height, selected[3].as('px'))];
+      if (actualbounds[0] >= actualbounds[2] || actualbounds[1] >= actualbounds[3]) throw new Error('Selection has no canvas area');
+    }
     var color = new SolidColor();
-    color.rgb.red = ${red};
-    color.rgb.green = ${green};
-    color.rgb.blue = ${blue};
-    doc.selection.selectAll();
-    doc.selection.fill(color, ColorBlendMode.NORMAL, 100, false);
-    doc.selection.deselect();
-    return { filled: true, color: { red: ${red}, green: ${green}, blue: ${blue} } };
+    color.rgb.red = components[0];
+    color.rgb.green = components[1];
+    color.rgb.blue = components[2];
+    if (scope === 'selection') {
+      doc.selection.fill(color, ColorBlendMode.NORMAL, 100, false);
+    } else {
+      doc.selection.selectAll();
+      try {
+        doc.selection.fill(color, ColorBlendMode.NORMAL, 100, false);
+      } finally {
+        doc.selection.deselect();
+      }
+    }
+    return { scope: scope, actualbounds: actualbounds, selection_preserved: true };
   `,
 
   /**
@@ -1038,8 +1093,15 @@ export const ExtendScriptSnippets = {
     }
     var doc = app.activeDocument;
     
-    var bounds = [[${left}, ${top}], [${right}, ${top}], [${right}, ${bottom}], [${left}, ${bottom}]];
-    doc.selection.select(bounds);
+    var edges = [${scriptValue(left)}, ${scriptValue(top)}, ${scriptValue(right)}, ${scriptValue(bottom)}];
+    for (var i = 0; i < edges.length; i++) {
+      if (!isFinite(edges[i]) || Math.floor(edges[i]) !== edges[i]) throw new Error('Rectangle edges must be finite integers');
+    }
+    if (edges[0] < 0 || edges[1] < 0 || edges[0] >= edges[2] || edges[1] >= edges[3] || edges[2] > doc.width.as('px') || edges[3] > doc.height.as('px')) {
+      throw new Error('Rectangle must be nonempty and inside the canvas');
+    }
+    var bounds = [[UnitValue(edges[0], 'px'), UnitValue(edges[1], 'px')], [UnitValue(edges[2], 'px'), UnitValue(edges[1], 'px')], [UnitValue(edges[2], 'px'), UnitValue(edges[3], 'px')], [UnitValue(edges[0], 'px'), UnitValue(edges[3], 'px')]];
+    doc.selection.select(bounds, SelectionType.REPLACE, 0, false);
     
     return { 
       selection: 'rectangle',
