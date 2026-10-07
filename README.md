@@ -143,15 +143,21 @@ contain `scope`, `actualbounds` (canvas pixel `[left, top, right, bottom]`, clip
 to the canvas for selection scope), and `selection_preserved: true`. The latter
 means preserving the original selection state, including no selection for layer
 scope. Bounds describe the operation's scope, not a measured pixel difference.
+This round's guarantee is limited to the verified visible-image use cases.
+Hidden RGB in fully transparent unselected pixels is not preserved; workflows
+that later reveal those pixels require separate verification.
 
 `photoshop_select_rectangle` requires finite integer pixel coordinates satisfying
 `0 <= left < right <= width` and `0 <= top < bottom <= height`. The rectangle is
 half-open, replaces the selection, and requests zero feather and no antialiasing.
 Runtime target and canvas checks precede mutation; script failures reach the tool
-response. Native selection shape, channel targeting, pixel bytes and PSD
-persistence still require the disposable-PSD gates in
-[the fill contract plan](docs/plans/002-selection-fill-contract.md); offline
-checks alone do not prove those behaviors.
+response. Native checks have calibrated RGB8 selection shape and state/RGBA
+observation, Gray/16 observation without original pixel-byte measurement, and
+verified eight sequential points, transparent one/four selected-pixel results
+and the transparent one PSD save/reopen case. See
+[the fill contract plan](docs/plans/002-selection-fill-contract.md) for the
+visible-image scope, hidden-RGB limitation, incomplete matrix coverage and pending
+final review; offline checks alone do not prove native behavior.
 
 ### Local layer previews
 

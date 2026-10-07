@@ -1,6 +1,6 @@
 # Selection / Fill：RGB8 填充与严格矩形选区契约计划
 
-状态：**实施中（实机验收未完成）**  
+状态：**已收束（可见画面范围；最终独立审查 PASS）**  
 目标项目：`D:/CodexProjects/photoshop-mcp-windows-first-pnpm-migration`  
 `human=false`
 
@@ -8,11 +8,11 @@
 
 保留既有[主计划](001-photoshop-hardening-pnpm-router.md)，本文件仅补入 selection / fill 阶段，不替代主计划。下文 P1–P3 是本阶段的局部编号，不重编号主计划 P0–P6。
 
-本阶段目标：实现明确作用域的 RGB8 填充与严格矩形选区，并证明选区、范围外像素及 PSD 持久化正确。
+本阶段目标：实现明确作用域的 RGB8 填充与严格矩形选区，按用户本轮只需可见画面正确的范围核对填充、选区及已覆盖的 PSD 持久化行为。完全透明像素的隐藏 RGB 保真不属于本轮退出要求；后续若要揭示这些像素，须另行验证。
 
-本计划基于主控已核实的 `bef16d23` 证据收束，该证据为交接依据。当前已有源码与离线测试改动，[多会话连接修复](003-multi-session-operation-lock.md) 已验收通过；恢复本计划的实机 gate。P2 实机验收及 P3 整体审查尚未完成，不宣称整体验收完成。
+接口及 P1 契约保留，[多会话连接修复](003-multi-session-operation-lock.md) 已验收通过。P2 按已核实证据与用户授权收束可见画面范围，P3 最终独立审查已 PASS；原严格矩阵未全部完成，不宣称其整体验收通过。
 
-阶段顺序：**P1 离线实现 → P2 一次性 PSD 实机 → P3 独立 reviewer PASS**。
+阶段顺序：**P1 离线实现 → P2 实机证据与可见画面范围收束 → P3 独立 reviewer PASS**。
 
 ## 确定范围
 
@@ -66,41 +66,27 @@
 
 **check / P1 exit：**离线全部通过，调用者/docs 完成，实机包可执行，未决 Adobe 语义逐项归入 implementer 的 P2 gate。
 
-## P2：一次性临时 PSD 批次
+## P2：实机证据与项目范围收束
 
-前置：P1 通过、明确项目/任务授权、人工已打开 Photoshop。implementer 负责语义 gate，tester 执行同一批次并记录证据。
+已核实证据：
 
-第 12 轮实证已显示本机 `activeChannels` getter 不可读，当前待修；不宣称 P2 验收通过。用户 `enabled=true`、AV、锁与 Photoshop 操作边界保持不变，不以改配置、绕过 AV、回收存活或归属不明的锁、自动启动或结束 Photoshop 推进本阶段。
+- 生产离线测试 **94/94**、lint 与 format 检查通过；这些检查不单独证明 Photoshop 实机行为。
+- RGB8 的 `activeChannels` getter 在全部三 component、单 component、双 component 及 alpha 目标均可读，并与独立 component roster / created alpha 身份核对一致。mask getter 失败，临时 observer 的 mask-only AM fallback 已校准读取、恢复及 unscoped 状态一致；没有发现正常 RGB 生产 getter 缺陷。
+- RGB8 full-observation 五个 case 通过：全部 64 像素 shape、逐像素 histogram count=1、完整 256 字节 RGBA（含透明隐藏 RGB）、文档/图层/通道/选区状态恢复及 owned cleanup。原选区 store 至唯一临时 alpha 后随 duplicate 读取，不依赖副本 selection；只读稳定性及真实写入 history 校准使用 atomic bracket。完整 observer 的 history 变化单独记录。
+- Gray/16 no-raw 校准通过：完整 shape、原模式/位深及状态恢复、只读稳定性、真实写入 history 判据和 owned cleanup。该证据不证明 Gray/16 原始像素 bytes，也不将 RGB8 写入支持扩展到这些模式。
+- 矩阵中 8 个 sequential one-point 通过；透明 one fill 与 case0 PSD 保存、关闭、重开通过。透明 four fill 的四个 selected 像素（索引 9、13、42、54）均为 `[197,83,41,255]`，选区形状及 alpha 正确。
+- 透明 four 的实际导出中，bbox `[1,1,7,7]` 内 32 个未选中、alpha=0 像素的隐藏 RGB 从 `[7,8,9]` 变为 `[197,83,41]`；bbox 外 28 个像素完全不变。原完整 outside RGBA 判据因此 STOP。当前证据确认的是填充后实际导出 pipeline 的结果，不单独归因于原 layer raw bytes。
 
-修订后的依赖顺序：
+用户明确本轮只需可见画面正确，接受上述完全透明像素隐藏 RGB 未保持的已知限制，授权本阶段按此范围收束。保留原严格 STOP 及全部已消费 PNG、PSD 和 evidence，不 normalize 旧结果，不把范围收束改写为原严格矩阵 PASS。后续若需揭示原透明像素的颜色，须另行验证。
 
-1. 生产修复仅限 prewrite 单次 `activeChannels` getter 的窄 catch：失败明确报告“无法验证 RGB 目标”并保留原原因；读取成功后继续原 RGB components 检查。先完成 throwing getter 回归，证明读取恰好一次，selection 与 fill 写入均为零。
-2. 独立短 AM 诊断 gate：新建获授权、owned 的一次性夹具；文档 4051 已关闭，不得指定复用。先校准实际通道身份、恢复能力及完整 64 像素 shape、RGBA、active 状态，不猜 descriptor 键，不反复运行约三分钟的全部 gates。若仅为观察暂切通道，必须恢复并经 unscoped pure 验证；被测动作开始时原 mask 目标必须保留。诊断或恢复不成立即 STOP。
-3. 依赖上述回归及诊断 gate 通过，才修 `.tmp/selection-fill-native-tools.mjs` 的三处 `activeChannels` 读取。保留 `nativePureRead` 的 owned/policy/grant/session 检查及 unscoped 真实活动状态读取；不以定向读取修正目标。拒绝案例必须匹配明确预期 code/原原因，非预期原因即 STOP；保留原 RGBA、full shape 与 active 通道不变证据，且两次 pure 之间仅有被测动作。随后继续下列 one/four、opaque/transparent byte 验收及 PSD 保存、关闭、重开矩阵，不减项。
+原完整矩阵在上述 STOP 后未全部运行；22 项拒绝等剩余案例及其余 PSD 重开、合法 layer/画布边界项不宣称实机通过。接口与 P1 拒绝契约保持不变，离线覆盖不替代未完成的实机证据。本轮不追加隐藏 RGB 调查或实机重跑。
 
-上述依赖通过后，验证目标通道识别、选区形状验证手段及实际导出 RGBA 路径；不成立即停止后续填充。
-
-完整形状观察仅在自有 8×8 夹具上进行：在原文档将选区 store 到唯一临时 alpha，duplicate 携带该 alpha，在副本采集全部 64 像素；不依赖副本保留 selection，不以 bounds 替代形状。先 gate 独立已知形状的读取精度，以及观察前后原文档实际 RGBA、完整选区、图层、通道和活动状态一致；失败路径也须清理自有临时通道/副本并恢复活动状态，清理或不变判据失败即 STOP。允许临时 alpha/store/清理产生 history 变化并记录，不保证完整 history 列表/count 不变，不 purge，也不注册历史恢复工具。
-
-拒绝核验顺序固定为：完整 before 观察并完成 cleanup → 纯读 history/state → 被测动作 → 纯读 history/state → 完整 after 观察并完成 cleanup。两次纯读之间仅允许被测动作；预期拒绝原因和两次直接 state/history 不变必须同时成立。先用自有夹具 gate 纯读稳定性及真实像素写入可被 history 检测；读取、校准或不变判据不成立即 STOP。完整观察引起的 history 变化单独记录，不混入被测动作的拒绝证据。
-
-通过后执行：
-
-- 1 pixel 与四个离散区域选区，覆盖 opaque/transparent 背景；选区完整形状保留，范围外 RGBA 逐 byte 不变，不能只比较 bounds。
-- 范围内准确 RGB 与 binary alpha；预期由夹具独立定义，不能以截图或合成 RGB 替代。
-- 无选区 selection、已有选区 layer、不支持模式/位深/层/通道、非法矩形均在写前拒绝，像素和选区不变。
-- Gray/16bit 与 alpha 拒绝的未改写证据限定为：P1 已审写前 guard，加上上述两次纯读之间经校准的原文档 history ID/数量与直接 state 不变，以及完整 before/after 观察所得选区和层/模式/位深/通道/活动状态一致；alpha 同时保留实际导出 composite RGBA 的完整比较。本项不宣称已测 Gray/16bit 原始像素或 alpha 通道像素 byte；RGB8 填充及范围外像素仍须逐 byte 比较实际导出 RGBA（含 hidden RGB），不得 normalize。智能对象及两自建文档的 doc/layer 错配拒绝继续保留矩阵与状态不变证据。
-- 合法 layer 填充及矩形右/下边界等于画布尺寸，确认半开语义。
-- PSD 保存、关闭、重开后像素及图层状态一致；活动选区按调用前后验收，不假定 PSD 保存它。
-
-**P2 exit：**全部判据实测通过。失败保留证据并停在本阶段，不自动重复实机或放宽标准。
+**P2 exit：**项目按用户授权的可见画面范围收束；P3 已审查新范围、已验证证据、已知限制及未覆盖项。
 
 ## P3 与整体退出
 
-独立 reviewer 检查实现、范围、文档及离线/实机证据，必须明确 **PASS**；退回项交对应角色处理，`human=false` 不替代审查。
+独立 reviewer 已按本轮可见画面范围检查实现、文档及离线/实机证据，确认隐藏 RGB 限制与未覆盖项被准确披露，结论为 **PASS**。本阶段按此项目范围退出，结论不扩展为原严格矩阵全部通过。
 
 ## 假设与风险
 
-假设：主控片段对应所报 HEAD，实机环境与临时 PSD 已获授权。这些是后续执行假设，不是本轮重新核实的事实，也不替代 P2 前置授权 gate。
-
-主要风险为通道误判、bounds 无法代表完整选区、导出改变透明像素 RGB；分别由 bounded gate 和实测解决。不承诺 CMYK/Gray 精度。
+未来任何新增实机任务仍须独立授权，不以本轮证据或范围收束替代授权与锁检查。不承诺 CMYK/Gray 填充精度，也不承诺完全透明像素隐藏 RGB 保真；原严格矩阵未覆盖行为仍未完成实机验收。
