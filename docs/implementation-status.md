@@ -1,10 +1,16 @@
 # MCP-only implementation status
 
+Current runtime: project registration and task grants have been removed. Access
+is configured through the host sandbox and permissions; see [README](../README.md)
+and [architecture](../architecture.md). The dated acceptance records below describe
+the earlier implementation. Its policy code and live-test drivers are archived
+locally in ignored `legacy/project-authorization/` and are not current capabilities.
+
 Baseline: `d75a31f6cb2c95ef6b704c1ca2441cfa2dfdf84b`.
 Plan: `d3f2a1e` on `plan/ps-hardening-pnpm-router`.
 Owner narrowed scope on 2026-10-02: this MCP only; router and Yueyue skill work deferred.
 
-Status: **MCP-only offline verification passed; P6 session identity repair U1–U4 accepted on the observed Windows host, final independent session-repair review PASS; remaining native Photoshop use UNVERIFIED**.
+Historical status: **MCP-only offline verification passed; P6 session identity repair U1–U4 accepted on the observed Windows host, final independent session-repair review PASS; remaining native Photoshop use UNVERIFIED**.
 
 - P0: source paths reviewed; project policy and explicit expiring task grants defined.
 - P1: pnpm 10.18.3 import, frozen installation (scripts disabled), build, lint and existing offline tests passed.
@@ -38,22 +44,20 @@ This does not accept the remaining P6 native, rendering or Yueyue integration wo
 
 ## Native disposable-document check (separate authorization)
 
-Open Photoshop manually. Register a dedicated empty test project and short-lived
-task grants outside its root; use copies only. Confirm version, COM attachment,
-registered document listing, denied foreign/unsaved documents, ID targeting after
-manual active-document switches, non-destructive working copy, save-copy/preview
-confinement, and intact source layers/masks/canvas. Check exported PNG dimensions,
+Open Photoshop manually and use disposable copies within the user's requested
+scope and host permissions. Confirm version, COM attachment, open-document listing,
+ID targeting after manual active-document switches, working-copy operations,
+explicit save-copy/preview paths, and intact source layers/masks/canvas. Check exported PNG dimensions,
 alpha and appearance manually. No cloud upload, production asset or model call is
 part of this procedure. History recovery and desktop screenshots remain disabled.
 
 ## Limits
 
-Directory checks are application-level confinement, not an OS sandbox. Same-user
-hostile processes can race filesystem/Photoshop state. Policy files must be protected
-from other host tools. Only one MCP process may write to Photoshop. Existing PSD
-linked resources and installed Photoshop plugins are outside this runtime's file
-broker. Native output rendering, COM behavior beyond the bounded session identity
-checks, and filesystem reparse semantics on Windows require local evidence.
+The runtime no longer provides project directory confinement or task authorization.
+The host and operating system control access. Only one MCP process may write to
+Photoshop. Existing PSD linked resources and installed Photoshop plugins execute
+within Photoshop's own process. Native output rendering and COM behavior beyond
+the bounded session identity checks require local evidence.
 No production art or S6 acceptance is claimed.
 
 ## Verification actually performed (2026-10-02, cloud Linux)

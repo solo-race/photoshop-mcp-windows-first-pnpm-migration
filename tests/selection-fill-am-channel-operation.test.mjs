@@ -20,8 +20,8 @@ async function fixture(t) {
   const connection = new PhotoshopConnection();
   connection.directLock = new OperationLock(directory);
   connection.detector = { detect: async () => ({ version: 'mock', path: '', isRunning: true }) };
-  const control = { scripts: [], scopes: [], grants: [], documents: [{ id: 4086, path: null }],
-    grantErrorAt: 0, channelError: null };
+  const control = { scripts: [], scopes: [], documents: [{ id: 4086, path: null }],
+    channelError: null };
   const result = { active: { document_id: 4086, layer_id: 2 }, candidates: [], readOnly: true };
   connection.executor = {
     isPhotoshopRunning: async () => true,
@@ -42,26 +42,16 @@ async function fixture(t) {
     control.scopes.push(scope);
     return withScope(scope, callback);
   };
-  const projects = {
-    unchanged: async () => {},
-    documentPath: async (_project, path) => path,
-    grant: (...args) => {
-      control.grants.push(args);
-      if (control.grantErrorAt === control.grants.length) throw new Error('TASK_TOOL_DENIED');
-      return {};
-    },
-  };
   const owned = new Set([4086]);
-  const project = { id: 'selection-fill-native' };
-  const reader = () => readUnscopedChannels({ connection, projects, project, owned,
+  const reader = () => readUnscopedChannels({ connection, owned,
     documentId: 4086, layerId: 2, PhotoshopAPIFactory, toExtendScriptValue });
-  const policy = { decorate: definition => definition, run: (definition, args) => definition.handler(args) };
-  const registry = new ToolRegistry(policy, new OperationLock(directory));
+  const executor = { decorate: definition => definition, run: (definition, args) => definition.handler(args) };
+  const registry = new ToolRegistry(executor, new OperationLock(directory));
   registry.register('photoshop_ping', {
     tool: { name: 'photoshop_ping', description: 'offline fixture', inputSchema: { type: 'object', properties: {} } },
     handler: async () => ({ content: [{ type: 'text', text: await connection.executeScript('registry-fixture') }] }),
   });
-  return { directory, connection, control, result, projects, owned, reader, registry };
+  return { directory, connection, control, result, owned, reader, registry };
 }
 
 test('read-only preflight preserves every existing primary/recovery lock and creates nothing', async (t) => {
@@ -96,8 +86,7 @@ test('registry and two unscoped pure reads acquire current operation locks witho
   assert.equal(f.control.scripts.length, 5); // registry, inspect+pure, inspect+pure
   assert.equal(f.control.scopes.length, 2);
   for (const scope of f.control.scopes) {
-    assert.deepEqual(Object.keys(scope), ['recheck']);
-    assert.equal(typeof scope.recheck, 'function');
+    assert.deepEqual(scope, {});
   }
   for (const script of f.control.scripts.filter(s => s.includes('OWNED_ACTIVE_TARGET_CHANGED'))) {
     assert.match(script, /PHOTOSHOP_SESSION_CHANGED/);
@@ -105,22 +94,17 @@ test('registry and two unscoped pure reads acquire current operation locks witho
     assert.doesNotMatch(script, /app\.activeDocument\s*=/);
     assert.doesNotMatch(script, /target\.activeLayer\s*=/);
   }
-  assert.equal(f.control.grants.length, 4); // initial grant + locked dispatch recheck per pure
-  for (const grant of f.control.grants)
-    assert.deepEqual(grant, [{ id: 'selection-fill-native' }, 'disposable-p2', 'native_observe', undefined, true]);
   assert.equal(f.connection.isFaulted, false);
   await assert.rejects(access(f.directory), { code: 'ENOENT' });
 });
 
-test('unowned, missing document and initial/rechecked grants reject before channel dispatch', async (t) => {
-  for (const mode of ['unowned', 'missing', 'initial-grant', 'rechecked-grant']) {
+test('unowned and missing document reject before channel dispatch', async (t) => {
+  for (const mode of ['unowned', 'missing']) {
     const f = await fixture(t);
     if (mode === 'unowned') f.owned.clear();
     if (mode === 'missing') f.control.documents = [];
-    if (mode === 'initial-grant') f.control.grantErrorAt = 1;
-    if (mode === 'rechecked-grant') f.control.grantErrorAt = 2;
     await assert.rejects(f.reader(), mode === 'unowned' ? /UNOWNED_DOCUMENT/
-      : mode === 'missing' ? /DOCUMENT_NOT_REGISTERED/ : /TASK_TOOL_DENIED/);
+      : /DOCUMENT_NOT_FOUND/);
     assert.equal(f.control.scripts.length, mode === 'unowned' ? 0 : 1);
     assert.equal(f.connection.isFaulted, false);
     await assert.rejects(access(f.directory), { code: 'ENOENT' });

@@ -1,7 +1,7 @@
 import { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { Logger } from '../utils/logger.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { ToolPolicy, disabledTools } from '../security/tool-policy.js';
+import { ToolExecutor, disabledTools } from './tool-executor.js';
 import { OperationLock, operationContext } from './operation-lock.js';
 
 export interface ToolHandler {
@@ -30,7 +30,7 @@ export class ToolRegistry {
   private stopping?: Promise<void>;
 
   constructor(
-    private policy?: ToolPolicy,
+    private executor?: ToolExecutor,
     private operationLock = new OperationLock()
   ) {
     this.logger = new Logger('ToolRegistry');
@@ -39,7 +39,7 @@ export class ToolRegistry {
 
   register(name: string, definition: ToolDefinition): void {
     if (disabledTools.has(name)) throw new Error('TOOL_DISABLED');
-    if (this.policy) definition = this.policy.decorate(definition);
+    if (this.executor) definition = this.executor.decorate(definition);
     if (this.tools.has(name)) {
       this.logger.warn(`Tool '${name}' already registered, overwriting`);
     }
@@ -73,13 +73,13 @@ export class ToolRegistry {
     if (disabledTools.has(name)) throw new Error('TOOL_DISABLED');
     const definition = this.tools.get(name);
     if (!definition) throw new Error('TOOL_NOT_FOUND');
-    if (!this.policy) throw new Error('POLICY_NOT_INITIALIZED');
-    const policy = this.policy;
+    if (!this.executor) throw new Error('EXECUTOR_NOT_INITIALIZED');
+    const executor = this.executor;
     const run = async () => {
       if (this.stopped) throw new Error('SERVER_STOPPING');
       if (name !== 'photoshop_get_capabilities' && this.operationLock.faulted)
         throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
-      return await policy.run(definition, args);
+      return await executor.run(definition, args);
     };
     if (this.inCall.getStore()?.active) return await run();
     return await new Promise<ToolResult>((resolve, reject) => {

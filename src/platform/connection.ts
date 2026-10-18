@@ -8,7 +8,6 @@ export interface ScriptScope {
   documentId?: number;
   documentPath?: string;
   layerId?: number;
-  recheck: () => Promise<void>;
 }
 
 import { Logger } from '../utils/logger.js';
@@ -56,7 +55,7 @@ export class PhotoshopConnection {
       this.macosExecutor = new MacOSExecutor();
       this.executor = this.macosExecutor;
     } else {
-      // Offline policy/registry tests and stdio capability inspection are possible on Linux.
+      // Offline registry tests and stdio capability inspection are possible on Linux.
       this.executor = {
         execute: async () => {
           throw new Error('Photoshop execution requires Windows or macOS');
@@ -164,7 +163,6 @@ export class PhotoshopConnection {
       if (operation.lock.faulted) throw new Error('SESSION_FAULTED_RESTART_REQUIRED');
       if (operation.isStopping()) throw new Error('SERVER_STOPPING');
       const scope = this.scope.getStore();
-      if (scope) await scope.recheck();
       const detected = await this.ensureDetected();
 
       // Set app name for macOS executor

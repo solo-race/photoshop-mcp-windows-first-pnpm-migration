@@ -1,0 +1,41 @@
+# Target: D:/CodexProjects/photoshop-mcp-windows-first-pnpm-migration/.codex/config.toml
+# Install global/config.toml by MERGING it first; this file extends its profiles.
+# Audited stack: pnpm10; observed branch: main.
+# pnpm 10.18.3；主机 Photoshop grants/policy、艺术源和 Adobe 防火墙不由此 profile 改写。
+# Profile selection is NOT task authorization. No Git/Office/SQL/deployment approval is implied.
+default_permissions = "repo-photoshop-mcp-windows-first"
+
+[mcp_servers.vba_doctor]
+enabled = false
+
+[mcp_servers.vba_lint]
+enabled = false
+
+[mcp_servers.gradle]
+enabled = false
+
+[mcp_servers.illustrator]
+enabled = false
+
+[shell_environment_policy.set]
+# New isolated cache locations, not paths observed on disk. Provisioned by migrate.py.
+npm_config_cache = 'C:/Users/tiany/AppData/Local/CodexRepoCaches/photoshop-mcp-windows-first/npm'
+npm_config_store_dir = 'C:/Users/tiany/AppData/Local/CodexRepoCaches/photoshop-mcp-windows-first/pnpm-store'
+
+[permissions.repo-photoshop-mcp-windows-first]
+description = "pnpm 10.18.3；主机 Photoshop grants/policy、艺术源和 Adobe 防火墙不由此 profile 改写。"
+extends = "win-default"
+
+[permissions.repo-photoshop-mcp-windows-first.filesystem]
+'C:/Users/tiany/AppData/Local/CodexRepoCaches/photoshop-mcp-windows-first' = "write"
+
+[permissions.repo-photoshop-mcp-windows-first-deps]
+description = "Explicit dependency acquisition; candidate allowlist, not captured traffic evidence."
+extends = "repo-photoshop-mcp-windows-first"
+
+[permissions.repo-photoshop-mcp-windows-first-deps.network]
+enabled = true
+allow_local_binding = false
+
+[permissions.repo-photoshop-mcp-windows-first-deps.network.domains]
+"registry.npmjs.org" = "allow"

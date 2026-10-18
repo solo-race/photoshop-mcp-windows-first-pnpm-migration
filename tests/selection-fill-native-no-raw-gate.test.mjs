@@ -1,12 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import {
-  EVIDENCE_PATH, VARIANTS, expectedShape, validateShape, validateNoRawState,
-  validateRestoration, validateBracket, passEvidence, producerScript, readiness, main,
-  registerNoRawDocumentTools,
-} from './helpers/selection-fill-native-no-raw-gate.mjs';
-import { NO_RAW_REQUIREMENTS, NO_RAW_GATE_PATH, requireNoRawGate } from './helpers/selection-fill-native-probe.mjs';
+import { VARIANTS, expectedShape, validateShape, validateNoRawState, validateRestoration, validateBracket, passEvidence, producerScript, registerNoRawDocumentTools } from './helpers/selection-fill-native-no-raw-gate.mjs';
+import { NO_RAW_REQUIREMENTS, requireNoRawGate } from './helpers/selection-fill-native-probe.mjs';
 import { cleanupOwnedAfterFailure } from './helpers/selection-fill-full-observation-gate.mjs';
 
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -121,7 +117,7 @@ test('fixed producer actually fills white then black and readonly changes no Pho
   }
 });
 
-test('missing criteria or failed/unknown owned cleanup cannot grant matrixAllowed', async () => {
+test('missing criteria or failed/unknown owned cleanup cannot allow the matrix', async () => {
   const rows = passRows(); assert.equal(requireNoRawGate(passEvidence(rows, [])).matrixAllowed, true);
   for (const key of NO_RAW_REQUIREMENTS) {
     const missing = clone(rows); delete missing[0][key]; assert.throws(() => passEvidence(missing, []), /NO_RAW_CRITERION/);
@@ -178,21 +174,4 @@ test('real document/advanced factories register the actual context getter withou
   }), /NO_RAW_DOCUMENT_TOOL_DEFINITIONS_REQUIRED/);
   assert.deepEqual(missing.list(), []);
   assert.equal(calls.length, 1);
-});
-
-test('default/help/readiness are preparation only and expose the exact runner dependency', async () => {
-  const messages = [], original = console.log;
-  console.log = value => messages.push(value);
-  try { await main([]); await main(['--help']); await main(['--readiness']); }
-  finally { console.log = original; }
-  assert.match(messages[0], /Preparation only/); assert.match(messages[1], /no PNG export/);
-  const prepared = JSON.parse(messages[2]); assert.deepEqual(prepared, readiness());
-  assert.equal(prepared.status, 'PREPARED'); assert.equal(prepared.nativeValidated, false);
-  assert.deepEqual(prepared.variants, ['gray', 'depth16']);
-  assert.deepEqual(prepared.requiredPerCase, NO_RAW_REQUIREMENTS);
-  assert.equal(EVIDENCE_PATH, '.tmp/selection-fill-native-no-raw-es3-gate-evidence');
-  assert.equal(prepared.evidence, EVIDENCE_PATH + '/evidence.json');
-  assert.equal(NO_RAW_GATE_PATH, prepared.evidence);
-  assert.throws(() => requireNoRawGate(prepared), /NO_RAW_GATE_REQUIRED/);
-  await assert.rejects(main(['--unexpected']), /Use --help/);
 });

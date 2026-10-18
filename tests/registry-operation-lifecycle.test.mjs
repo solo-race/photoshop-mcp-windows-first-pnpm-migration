@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ToolRegistry } from '../dist/core/tool-registry.js';
 import { OperationLock, operationContext } from '../dist/core/operation-lock.js';
-import { ToolPolicy } from '../dist/security/tool-policy.js';
+import { ToolExecutor } from '../dist/core/tool-executor.js';
 import { createAdvancedTools } from '../dist/tools/advanced-tools.js';
 import { PhotoshopConnection } from '../dist/platform/connection.js';
 import { WindowsExecutor, ScriptExecutionError } from '../dist/platform/windows-executor.js';
@@ -27,17 +27,10 @@ async function fixture(t) {
   const directory = join(root, 'operation');
   const lock = new OperationLock(directory);
   const events = [];
-  const grants = [];
   const assertLocked = async () => {
     assert.equal(operationContext.getStore()?.lock, lock);
     assert.equal((JSON.parse(await readFile(join(directory, 'state'), 'utf8'))).state, 'idle');
     assert.equal(await readFile(join(directory, 'pid'), 'utf8'), String(process.pid));
-  };
-  const projects = {
-    unchanged: async () => { events.push('policy'); },
-    get: () => ({ id: 'project', root }),
-    documentPath: async (_project, path) => path,
-    grant: (_project, task, name) => { grants.push({ task, name }); return {}; },
   };
   const connection = {
     inspectDocuments: async () => {
@@ -46,23 +39,22 @@ async function fixture(t) {
     },
     withScope: async (_scope, operation) => operation(),
   };
-  const policy = new ToolPolicy(projects, connection);
-  const registry = new ToolRegistry(policy, lock);
-  return { root, directory, lock, registry, policy, projects, connection, events, grants, assertLocked };
+  const executor = new ToolExecutor(connection);
+  const registry = new ToolRegistry(executor, lock);
+  return { root, directory, lock, registry, executor, connection, events, assertLocked };
 }
 
-test('lock precedes the complete policy.run, including policy metadata and inspectDocuments', async (t) => {
+test('lock precedes document inspection and tool execution', async (t) => {
   const f = await fixture(t);
-  f.projects.unchanged = async () => { await f.assertLocked(); f.events.push('policy'); };
   f.registry.register('photoshop_get_state', definition('photoshop_get_state', async () => {
     await f.assertLocked(); f.events.push('handler'); return text();
   }));
-  await f.registry.execute('photoshop_get_state', { project_id: 'project', document_id: 7 });
-  assert.deepEqual(f.events, ['policy', 'inspect', 'handler']);
+  await f.registry.execute('photoshop_get_state', { document_id: 7 });
+  assert.deepEqual(f.events, ['inspect', 'handler']);
   await assert.rejects(access(f.directory), { code: 'ENOENT' });
 });
 
-test('whole actual sequence shares one lock, nested grants apply, local calls wait and another registry is busy', async (t) => {
+test('whole sequence shares one lock, validates each step, queues local calls and excludes another registry', async (t) => {
   const f = await fixture(t);
   const entered = deferred(), resume = deferred();
   let acquisitions = 0, writes = 0;
@@ -80,14 +72,14 @@ test('whole actual sequence shares one lock, nested grants apply, local calls wa
     await f.assertLocked(); f.events.push('ping'); return text();
   }));
   const call = f.registry.execute('photoshop_run_sequence', {
-    project_id: 'project', task_id: 'task', steps: [1, 2].map(() => ({
+    steps: [1, 2].map(() => ({
       tool: 'photoshop_rename_layer', args: { document_id: 7, layer_id: 8 },
     })),
   });
   await entered.promise;
   assert.equal(acquisitions, 1);
   const queued = f.registry.execute('photoshop_ping', {});
-  const other = new ToolRegistry(f.policy, new OperationLock(f.directory));
+  const other = new ToolRegistry(f.executor, new OperationLock(f.directory));
   other.register('photoshop_ping', definition('photoshop_ping', async () => assert.fail('busy handler')));
   const before = [...f.events];
   await assert.rejects(other.execute('photoshop_ping', {}), /WRITER_LOCK_ACTIVE/);
@@ -96,26 +88,24 @@ test('whole actual sequence shares one lock, nested grants apply, local calls wa
   await Promise.all([call, queued]);
   assert.equal(acquisitions, 2);
   assert.deepEqual(f.events.filter((event) => /write|ping/.test(event)), ['write1', 'write2', 'ping']);
-  assert.deepEqual(f.grants, [1, 2].map(() => ({ task: 'task', name: 'photoshop_rename_layer' })));
-  f.projects.grant = () => { throw new Error('TASK_TOOL_DENIED'); };
   await assert.rejects(f.registry.execute('photoshop_run_sequence', {
-    project_id: 'project', task_id: 'task', steps: [{
-      tool: 'photoshop_rename_layer', args: { document_id: 7, layer_id: 8 },
+    steps: [{
+      tool: 'photoshop_rename_layer', args: { document_id: 7 },
     }],
-  }), /TASK_TOOL_DENIED/);
+  }), /MISSING_ARGUMENT: arguments.layer_id/);
   assert.equal(writes, 2);
 });
 
-test('capabilities alone bypasses the Photoshop lock while preserving policy.run', async (t) => {
+test('capabilities alone bypasses the Photoshop lock and document inspection', async (t) => {
   const f = await fixture(t);
   await f.lock.acquire();
-  const other = new ToolRegistry(f.policy, new OperationLock(f.directory));
+  const other = new ToolRegistry(f.executor, new OperationLock(f.directory));
   for (const name of ['photoshop_get_capabilities', 'photoshop_ping', 'photoshop_get_version'])
     other.register(name, definition(name, async () => text(name)));
   assert.equal((await other.execute('photoshop_get_capabilities', {})).content[0].text, 'photoshop_get_capabilities');
   for (const name of ['photoshop_ping', 'photoshop_get_version'])
     await assert.rejects(other.execute(name, {}), /WRITER_LOCK_ACTIVE/);
-  assert.deepEqual(f.events, ['policy']);
+  assert.deepEqual(f.events, []);
   await f.lock.release();
 });
 

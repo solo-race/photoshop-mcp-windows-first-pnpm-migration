@@ -52,7 +52,7 @@ function fixture() {
   const other = { id: 99, layers: [] };
   const control = {
     executionError: null, responseError: null, lookupError: null, putError: null,
-    documentError: null, documentReads: 0, rechecks: 0,
+    documentError: null, documentReads: 0,
   };
   const app = {
     name: 'Adobe Photoshop', version: '26.0', build: 'controlled',
@@ -113,7 +113,6 @@ function fixture() {
     const api = await unscopedApi();
     return connection.withScope({
       ...(document ? { documentId: target.id, documentPath: null, layerId: nestedLayer.id } : {}),
-      recheck: async () => { control.rechecks++; },
     }, () => api.executeScript(script));
   };
   return { connection, app, control, options, puts, globals, target, nestedLayer, dispatch, unscopedApi };
@@ -127,7 +126,6 @@ operationTest('one CustomOptions installation supports repeated inspections and 
   assert.equal(await f.dispatch(), 'NO');
   assert.equal(await f.dispatch(true), 'NO');
   assert.equal(f.app.operations, 2);
-  assert.equal(f.control.rechecks, 2);
   assert.equal(f.app.activeDocument, f.target);
   assert.equal(f.target.activeLayer, f.nestedLayer);
   assert.equal(f.app.displayDialogs, 'ALL');
@@ -156,7 +154,6 @@ for (const state of ['missing', 'mismatch', 'descriptor-without-token', 'lookup-
     assert.equal(f.app.activeDocument, active);
     assert.equal(f.target.activeLayer, undefined);
     assert.equal(f.app.displayDialogs, 'ALL');
-    assert.equal(f.control.rechecks, 2);
     assert.equal(f.puts.length, 1);
     assert.equal(f.connection.epochInstalled, true);
   });
@@ -227,21 +224,16 @@ operationTest('unrelated inspection, transport and operation errors propagate wi
   assert.equal(f.app.operations, 1);
 });
 
-operationTest('scope recheck rejection and document/layer targeting still precede operation', async () => {
+operationTest('document/layer targeting precedes operation', async () => {
   const f = fixture();
   await f.connection.inspectDocuments();
   const api = await f.unscopedApi();
-  const error = new Error('GRANT_RECHECK_DENIED');
-  const calls = f.globals.length;
-  await assert.rejects(f.connection.withScope({ recheck: async () => { throw error; } },
-    () => api.executeScript('app.operations++;')), (actual) => actual === error);
-  assert.equal(f.globals.length, calls);
   for (const [scope, message] of [
     [{ documentId: 123, documentPath: null }, 'TARGET_DOCUMENT_CHANGED'],
     [{ documentId: 7, documentPath: '/unexpected.psd' }, 'TARGET_PATH_CHANGED'],
     [{ documentId: 7, documentPath: null, layerId: 123 }, 'TARGET_LAYER_CHANGED'],
   ]) {
-    await assert.rejects(f.connection.withScope({ ...scope, recheck: async () => {} },
+    await assert.rejects(f.connection.withScope(scope,
       () => api.executeScript('app.operations++;')), new RegExp(message));
   }
   assert.equal(f.app.operations, 0);

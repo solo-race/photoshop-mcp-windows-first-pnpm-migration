@@ -4,6 +4,7 @@ tsconfig.json
 eslint.config.js
 
 # Development
+legacy/
 .taskmaster/
 examples/
 

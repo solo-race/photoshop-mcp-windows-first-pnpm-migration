@@ -1,10 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import path from 'node:path';
 import { ExtendScriptSnippets as snippets } from '../dist/api/extendscript.js';
-import { samePath, inside, matchesGrantedPath, ProjectPolicy } from '../dist/security/project-policy.js';
-import { ToolPolicy } from '../dist/security/tool-policy.js';
+import { ToolExecutor } from '../dist/core/tool-executor.js';
 
 const operations = [
   ['applyGaussianBlur', [2], 'applyGaussianBlur'],
@@ -42,82 +40,18 @@ for (const [name, args, method] of operations) {
   });
 }
 
-test('Windows document/output/overwrite paths share case-aware identity; POSIX remains case sensitive', () => {
-  for (const flavor of [path.win32, path.posix]) {
-    const root = flavor === path.win32 ? 'C:\\Projects\\art' : '/projects/art';
-    for (const directory of ['masters', 'work', 'previews']) {
-      const approved = `${directory}/Example.psd`;
-      const exact = flavor.join(root, approved);
-      const variant = flavor.join(root, directory, 'example.psd');
-      assert.equal(matchesGrantedPath(root, [approved], exact, flavor), true);
-      assert.equal(samePath(exact, variant, flavor), flavor === path.win32);
-      assert.equal(matchesGrantedPath(root, [approved], variant, flavor), flavor === path.win32);
-      assert.equal(matchesGrantedPath(root, [approved], flavor.join(root, directory, 'other.psd'), flavor), false);
-      assert.equal(matchesGrantedPath(root, [approved], flavor.join(root, '..', 'outside', 'Example.psd'), flavor), false);
-      assert.equal(inside(root, flavor.join(root + '-other', approved), flavor), false);
-      assert.throws(() => matchesGrantedPath(root, ['../outside.psd'], exact, flavor), /PATH_DENIED/);
-    }
-  }
-});
-
-test('grant tool/task names remain exact and explicit rasterization remains destructive-gated', () => {
-  const root = path.resolve('fixture');
-  const policy = new ProjectPolicy();
-  const project = { root, allow_destructive: false, tasks: [{
-    id: 'Edit', expires_at: '2099-01-01', tools: ['photoshop_desaturate', 'photoshop_rasterize_layer'],
-    documents: ['masters/Example.psd'], destructive_tools: [],
-  }] };
-  const doc = path.join(root, 'masters/Example.psd');
-  assert.equal(policy.grant(project, 'Edit', 'photoshop_desaturate', doc).id, 'Edit');
-  assert.throws(() => policy.grant(project, 'edit', 'photoshop_desaturate', doc), /TASK_NOT_AUTHORIZED/);
-  assert.throws(() => policy.grant(project, 'Edit', 'PHOTOSHOP_DESATURATE', doc), /TASK_NOT_AUTHORIZED/);
-  assert.throws(() => policy.grant(project, 'Edit', 'photoshop_rasterize_layer', doc, false, true), /DESTRUCTIVE/);
-});
-
-test('safe rasterization-required guidance survives result sanitization', async () => {
-  const root = path.resolve('fixture');
-  const projects = {
-    unchanged: async () => {}, get: () => ({ id: 'art', root }),
-    documentPath: async (_, p) => p, grant: () => ({}),
-  };
+test('rasterization guidance survives result sanitization without exposing internal errors', async () => {
   const connection = {
-    inspectDocuments: async () => [{id: 1, path: path.join(root, 'masters/a.psd')}],
+    inspectDocuments: async () => [{ id: 1, path: null }],
     withScope: async (_, fn) => fn(),
   };
-  const guard = new ToolPolicy(projects, connection);
-  const definition = guard.decorate({
-    tool: {name: 'photoshop_desaturate', inputSchema: {type: 'object', properties: {}}},
-    handler: async () => ({ isError: true, content: [{type: 'text', text: 'RASTERIZATION_REQUIRED private/path'}] }),
+  const executor = new ToolExecutor(connection);
+  const definition = executor.decorate({
+    tool: { name: 'photoshop_desaturate', inputSchema: { type: 'object', properties: {} } },
+    handler: async () => ({ isError: true, content: [{ type: 'text', text: 'RASTERIZATION_REQUIRED private/path' }] }),
   });
-  const result = await guard.run(definition, {project_id: 'art', task_id: 'Edit', document_id: 1, layer_id: 2});
+  const result = await executor.run(definition, { document_id: 1, layer_id: 2 });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /separately authorize photoshop_rasterize_layer/);
+  assert.match(result.content[0].text, /use photoshop_rasterize_layer/);
   assert.doesNotMatch(result.content[0].text, /private/);
-});
-
-test('case-sensitive filesystem files remain distinct and aliases stay denied', async () => {
-  if (process.platform === 'win32') return; // Windows semantics are covered by the bounded path probe above.
-  const { mkdtemp, mkdir, writeFile, symlink, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const temp = await mkdtemp(path.join(tmpdir(), 'ps-review-'));
-  try {
-    const root = path.join(temp, 'project');
-    await mkdir(path.join(root, 'masters'), { recursive: true });
-    await writeFile(path.join(root, 'masters/Example.psd'), 'one');
-    await writeFile(path.join(root, 'masters/example.psd'), 'two');
-    const project = {
-      id: 'art', root, read_paths: ['masters'], write_paths: [], allow_overwrite: false,
-      allow_destructive: false, allow_ui_capture: false, preview_delivery: 'local-only', cloud_recipients: [],
-      tasks: [{ id: 'edit', expires_at: '2099-01-01', tools: ['photoshop_desaturate'], documents: ['masters/Example.psd'] }],
-    };
-    const config = path.join(temp, 'policy.json');
-    await writeFile(config, JSON.stringify({schema_version: 1, projects: [project]}));
-    const policy = await ProjectPolicy.load(config);
-    const approved = await policy.documentPath(policy.get('art'), path.join(root, 'masters/Example.psd'));
-    const other = await policy.documentPath(policy.get('art'), path.join(root, 'masters/example.psd'));
-    policy.grant(project, 'edit', 'photoshop_desaturate', approved);
-    assert.throws(() => policy.grant(project, 'edit', 'photoshop_desaturate', other), /TASK_DOCUMENT_DENIED/);
-    await symlink(approved, path.join(root, 'masters/alias.psd'));
-    await assert.rejects(policy.documentPath(project, path.join(root, 'masters/alias.psd')), /ALIAS_DENIED/);
-  } finally { await rm(temp, {recursive: true, force: true}); }
 });

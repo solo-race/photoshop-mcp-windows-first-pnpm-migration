@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
-import {
-  CASES, EVIDENCE_PATH, EXPORT_PATHS, bracketScript, channelMetadataScript, cleanupOwnedAfterFailure, compareRawShape, compareRGBA, compareState,
-  expectedMask, expectedOpaque, historyBracket, main, observationScript, requireAbsent,
-} from './helpers/selection-fill-full-observation-gate.mjs';
-import { SOURCE_PATH, expectedRGBA } from './helpers/selection-fill-rgba-roundtrip-gate.mjs';
+import { bracketScript, channelMetadataScript, cleanupOwnedAfterFailure, compareRawShape, compareRGBA, compareState, expectedMask, expectedOpaque, historyBracket, observationScript, requireAbsent } from './helpers/selection-fill-full-observation-gate.mjs';
+import { expectedRGBA } from './helpers/selection-fill-rgba-roundtrip-gate.mjs';
 
 test('full64 raw masks reject inverted polarity, missing pixels and nonunit counts', () => {
   for (const shape of ['one', 'four']) {
@@ -196,22 +193,4 @@ test('known criterion or completed script failure closes owned IDs; unknown or c
   assert.equal(result.failedId, 3);
   assert.match(result.error, /FIRST_CLOSE_FAILED/);
   assert.match(localError.message, /FULL64_RAW_MASK_GATE/);
-});
-
-test('default/help never execute; exact matrix and slots are bounded, existing source cannot be output', async () => {
-  let executed = 0;
-  for (const args of [[], ['--help'], ['-h']]) await main(args, async () => { executed++; });
-  assert.equal(executed, 0);
-  await assert.rejects(main(['--run', '--overwrite'], async () => { executed++; }), /Only --help or --run/);
-  assert.equal(executed, 0);
-  assert.equal(CASES.length, 5);
-  assert.equal(CASES.filter(spec => spec.transparent && spec.target === 'mask').length, 0);
-  assert.equal(EXPORT_PATHS.length, CASES.length * 4 + 1);
-  assert.equal(new Set(EXPORT_PATHS).size, 21);
-  assert.deepEqual(EXPORT_PATHS, Array.from({ length: 21 }, (_, index) =>
-    `.tmp/selection-fill-native/${String(19 + index).padStart(3, '0')}.png`));
-  assert.equal(EVIDENCE_PATH, '.tmp/selection-fill-native/full-observation-visible-channel-gate-evidence');
-  assert.ok(!EXPORT_PATHS.includes(SOURCE_PATH));
-  await assert.rejects(requireAbsent(new URL('./helpers/selection-fill-full-observation-gate.mjs', import.meta.url)),
-    /FRESH_PATH_REQUIRED/);
 });

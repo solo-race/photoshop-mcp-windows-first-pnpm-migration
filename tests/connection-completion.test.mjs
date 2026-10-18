@@ -182,16 +182,6 @@ test('invalid running-query output before dispatch preserves causes, idle and no
   }
 });
 
-test('policy recheck rejection creates no pending', async (t) => {
-  const f = await fixture(t);
-  await assert.rejects(f.run(() => f.connection.withScope({
-    recheck: async () => { throw new Error('GRANT_RECHECK_DENIED'); },
-  }, () => f.connection.executeScript('mock script'))), /GRANT_RECHECK_DENIED/);
-  assert.equal(f.control.calls, 0);
-  assert.equal(await f.state(), 'idle');
-  await f.lock.release();
-});
-
 test('direct connection calls serialize under their own operation lock and retain unknown', async (t) => {
   const f = await fixture(t);
   await f.lock.release();
@@ -212,7 +202,7 @@ test('direct connection calls serialize under their own operation lock and retai
 test('scope guard error response is definite completion and preserves its original reason', async (t) => {
   const f = await fixture(t);
   f.control.result = { __mcp_scope_error: 'TARGET_LAYER_CHANGED' };
-  await assert.rejects(f.run(() => f.connection.withScope({ recheck: async () => {} },
+  await assert.rejects(f.run(() => f.connection.withScope({},
     () => f.connection.executeScript('mock script'))), {
     completion: 'finished', message: 'TARGET_LAYER_CHANGED',
   });

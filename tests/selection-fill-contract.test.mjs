@@ -167,7 +167,7 @@ function fixture(points = null) {
   const invoke = async (tool, args, overrides = {}) => {
     await connection.inspectDocuments();
     return connection.withScope(
-      { documentId: 7, documentPath: null, layerId: 8, recheck: async () => {}, ...overrides },
+      { documentId: 7, documentPath: null, layerId: 8, ...overrides },
       () => tool.handler(args)
     );
   };
@@ -379,7 +379,7 @@ operationTest('invalid integer/order/canvas coordinates reject before selection 
   }
 });
 
-operationTest('real connection doc/layer/grant/session guards still precede fill writes', async () => {
+operationTest('real connection doc/layer/session guards still precede fill writes', async () => {
   for (const overrides of [
     { documentId: 99 },
     { layerId: 99 },
@@ -390,22 +390,10 @@ operationTest('real connection doc/layer/grant/session guards still precede fill
     assert.deepEqual(f.writes, []);
   }
   const f = fixture();
-  const denied = await f.invoke(
-    f.fill,
-    { scope: 'layer', ...rgb },
-    {
-      recheck: async () => {
-        throw new Error('GRANT_DENIED');
-      },
-    }
-  );
-  rejected(denied);
-  assert.match(denied.content[0].text, /GRANT_DENIED/);
-  assert.deepEqual(f.writes, []);
   await f.connection.inspectDocuments();
   f.options.clear();
   const result = await f.connection.withScope(
-    { documentId: 7, documentPath: null, layerId: 8, recheck: async () => {} },
+    { documentId: 7, documentPath: null, layerId: 8 },
     () => f.fill.handler({ scope: 'layer', ...rgb })
   );
   rejected(result);

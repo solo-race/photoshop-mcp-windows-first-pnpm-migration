@@ -66,30 +66,22 @@ test('missing/type fields, identity confusion and same-structure restore mismatc
   }
 });
 
-test('owned, grant/recheck and session refusal dispatch no actual-channel script', async () => {
-  for (const refusal of ['owned', 'grant', 'grant-recheck', 'session']) {
-    let dispatches = 0, factories = 0, grants = 0;
+test('unowned, missing document and session refusal dispatch no actual-channel script', async () => {
+  for (const refusal of ['owned', 'missing', 'session']) {
+    let dispatches = 0, factories = 0;
     const connection = {
-      inspectDocuments: async () => [{ id: 72 }],
-      withScope: async ({ recheck }, execute) => {
+      inspectDocuments: async () => refusal === 'missing' ? [] : [{ id: 72 }],
+      withScope: async (_scope, execute) => {
         if (refusal === 'session') throw new Error('SESSION_STOP');
-        await recheck();
         return execute();
-      },
-    };
-    const projects = {
-      unchanged: async () => {},
-      grant() {
-        grants++;
-        if (refusal === 'grant' || (refusal === 'grant-recheck' && grants === 2)) throw new Error('GRANT_STOP');
       },
     };
     class FakeFactory {
       async createAPI() { factories++; return { executeScript: async () => { dispatches++; } }; }
     }
-    await assert.rejects(readActualChannel({ connection, projects, project: {},
+    await assert.rejects(readActualChannel({ connection,
       owned: new Set(refusal === 'owned' ? [] : [72]), documentId: 72, layerId: 2,
-      PhotoshopAPIFactory: FakeFactory, toExtendScriptValue: String }), /UNOWNED_DOCUMENT|GRANT_STOP|SESSION_STOP/);
+      PhotoshopAPIFactory: FakeFactory, toExtendScriptValue: String }), /UNOWNED_DOCUMENT|DOCUMENT_NOT_FOUND|SESSION_STOP/);
     assert.equal(factories, 0, refusal);
     assert.equal(dispatches, 0, refusal);
   }

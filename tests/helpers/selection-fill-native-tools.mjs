@@ -1,27 +1,6 @@
 import { PhotoshopAPIFactory } from '../../dist/api/photoshop-api.js';
 import { channelMetadataScript } from './selection-fill-full-observation-gate.mjs';
 
-// Read only: keep the real policy grant and session guard without selecting a target.
-export async function nativePureRead(connection, owned, projects, documentId, options = {}) {
-  if (!owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
-  const project = projects.get('selection-fill-native');
-  const document = (await connection.inspectDocuments()).find(d => d.id === documentId);
-  if (!document) throw new Error('DOCUMENT_NOT_REGISTERED');
-  const documentPath = document.path
-    ? await projects.documentPath(project, document.path) : undefined;
-  const recheck = async () => {
-    if (!owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
-    await projects.unchanged();
-    if (documentPath) await projects.documentPath(project, documentPath);
-    projects.grant(project, 'disposable-p2', 'native_observe', documentPath, !documentPath);
-  };
-  await recheck();
-  const definition = nativeTools(connection, owned).find(d => d.tool.name === 'native_observe');
-  return connection.withScope({ recheck }, () => definition.handler({
-    ...options, document_id: documentId, pure: true, history: true,
-  }));
-}
-
 // Only this disposable batch may call these fixed helpers through its registry.
 export function nativeTools(connection, owned) {
   const definition = (name, properties, build) => ({

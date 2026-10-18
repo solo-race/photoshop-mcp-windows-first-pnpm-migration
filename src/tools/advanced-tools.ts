@@ -49,7 +49,7 @@ export function createAdvancedTools(
   ].map((name) =>
     define(
       name,
-      'Inspect only the explicitly authorized document; minimal detail by default.',
+      'Inspect the document selected by ID; minimal detail by default.',
       { responseDetail: detail },
       [],
       async (a) =>
@@ -64,12 +64,10 @@ export function createAdvancedTools(
     ...stateTools,
     define(
       'photoshop_get_open_documents',
-      'List IDs and relative paths of documents in this registered project only.',
+      'List IDs and file paths of all open documents, including unsaved documents.',
       {},
       [],
-      async () => {
-        throw new Error('POLICY_REQUIRED');
-      }
+      async () => text({ documents: await connection.inspectDocuments() })
     ),
     define('photoshop_get_layer_tree', 'Read the selected document layer tree.', {}, [], async () =>
       text(await run(buildGetLayerTreeScript(undefined, 'normal')))
@@ -109,19 +107,19 @@ export function createAdvancedTools(
           )
       )
     ),
-    define('photoshop_select_document', 'Select a registered document by ID.', {}, [], async () =>
+    define('photoshop_select_document', 'Select an open document by ID.', {}, [], async () =>
       text(await run('return {id: app.activeDocument.id};'))
     ),
     define(
       'photoshop_select_layer',
-      'Select a layer by ID within a registered document.',
+      'Select a layer by ID within the selected document.',
       {},
       [],
       async () => text(await run('return {id: app.activeDocument.activeLayer.id};'))
     ),
     define(
       'photoshop_duplicate_document',
-      'Create a session-bound working copy of the selected document.',
+      'Create a working copy of the selected document.',
       { newName: { type: 'string' } },
       [],
       async (a) => {
@@ -145,7 +143,7 @@ export function createAdvancedTools(
     ...['photoshop_save_copy', 'photoshop_export_document'].map((name) =>
       define(
         name,
-        'Save a copy within registered output paths; source document is not rebound.',
+        'Save a copy to the specified file path; source document is not rebound.',
         {
           path: { type: 'string' },
           format: { type: 'string', enum: ['PSD', 'PNG', 'JPEG'] },
@@ -218,9 +216,8 @@ return {exported: true};`);
     ),
     define(
       'photoshop_run_sequence',
-      'Execute up to 20 authorized steps serially. Not a transaction; failure stops with no automatic rollback.',
+      'Execute up to 20 steps serially. Not a transaction; failure stops with no automatic rollback.',
       {
-        task_id: { type: 'string' },
         steps: {
           type: 'array',
           minItems: 1,
@@ -240,15 +237,7 @@ return {exported: true};`);
         const results = [];
         for (const step of a.steps as { tool: string; args: Record<string, unknown> }[]) {
           if (step.tool === 'photoshop_run_sequence') throw new Error('NESTED_WORKFLOW_DENIED');
-          if (step.args.project_id !== undefined && step.args.project_id !== a.project_id)
-            throw new Error('CROSS_PROJECT_WORKFLOW_DENIED');
-          if (a.task_id && step.args.task_id !== undefined && step.args.task_id !== a.task_id)
-            throw new Error('CROSS_TASK_WORKFLOW_DENIED');
-          const result = await execute(step.tool, {
-            ...step.args,
-            project_id: a.project_id,
-            ...(a.task_id ? { task_id: a.task_id } : {}),
-          });
+          const result = await execute(step.tool, step.args);
           results.push({ tool: step.tool, result });
           if (result.isError) return { ...text({ results, stopped: true }), isError: true };
         }

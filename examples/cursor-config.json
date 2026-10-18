@@ -7,8 +7,7 @@
       ],
       "env": {
         "PHOTOSHOP_PATH": "C:/Program Files/Adobe/Adobe Photoshop 2024/Photoshop.exe",
-        "LOG_LEVEL": "1",
-        "PHOTOSHOP_PROJECTS_FILE": "C:/MCP-Policy/photoshop-projects.json"
+        "LOG_LEVEL": "1"
       }
     }
   }

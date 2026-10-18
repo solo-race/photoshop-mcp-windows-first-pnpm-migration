@@ -1,119 +1,6 @@
-import { mkdir, lstat, writeFile } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import assert from 'node:assert/strict';
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-const args = process.argv.slice(2);
-if (!args.length || (args.length === 1 && ['--help', '-h'].includes(args[0]))) {
-  console.log('Preparation only; default/help never imports Photoshop code or uses COM.\n--run: once-only AM field discovery on a NEW owned 8x8 mask fixture. Photoshop must already be open. Existing evidence/lock refuses. Records unscoped pure descriptors twice without switching channels. Exit 2 means BLOCKED: identity interpretation, restoration, 64-pixel shape/RGBA/active gate still require this runtime evidence. No native observer repair is authorized by RECORDED evidence.');
-} else if (args.length === 1 && args[0] === '--run') {
-  await run();
-} else {
-  console.error('Only --help or --run is accepted.');
-  process.exitCode = 1;
-}
-}
-
-async function run() {
-  const root = fileURLToPath(new URL('../../', import.meta.url));
-  const out = join(root, '.tmp', 'selection-fill-am-channel-gate-inventory-normal-evidence');
-  const owned = new Set(), evidence = [];
-  let prepared = false, registry;
-  let stage = 'preflight';
-  const record = (event, data) => evidence.push({ event, data });
-  const call = async (name, args = {}, documentId, layerId) => {
-    stage = name;
-    if (documentId !== undefined && !owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
-    const result = await registry.execute(name, {
-      project_id: 'selection-fill-native', task_id: 'disposable-p2', ...args,
-      ...(documentId === undefined ? {} : { document_id: documentId }),
-      ...(layerId === undefined ? {} : { layer_id: layerId }),
-    });
-    if (result.isError) throw new Error('TOOL_FAILED:' + name + ':' + JSON.stringify(result));
-    return result.structuredContent ?? JSON.parse(result.content.filter(c => c.type === 'text').map(c => c.text).join('\n'));
-  };
-  try {
-    await preflightWriterLock(); // Read-only refusal; no lifetime lock or reclamation.
-    await mkdir(out); // A second run refuses before COM; retain all evidence.
-    prepared = true;
-    const [{ PhotoshopConnection }, { ProjectPolicy }, { ToolPolicy }, { ToolRegistry },
-      { createDocumentTools }, { createAdvancedTools }, { nativeTools },
-      { PhotoshopAPIFactory }, { toExtendScriptValue }] = await Promise.all([
-      import('../../dist/platform/connection.js'), import('../../dist/security/project-policy.js'),
-      import('../../dist/security/tool-policy.js'), import('../../dist/core/tool-registry.js'),
-      import('../../dist/tools/document-tools.js'), import('../../dist/tools/advanced-tools.js'),
-      import('./selection-fill-native-tools.mjs'), import('../../dist/api/photoshop-api.js'),
-      import('../../dist/core/serializer.js'),
-    ]);
-    const connection = new PhotoshopConnection();
-    const projects = await ProjectPolicy.load('D:/CodexProjects/.tmp/selection-fill-projects.json');
-    const project = projects.get('selection-fill-native');
-    const names = new Set(['photoshop_create_document', 'photoshop_close_document',
-      'photoshop_get_active_context', 'native_fixture']);
-    for (const name of [...names, 'native_observe']) if (name !== 'photoshop_get_active_context')
-      projects.grant(project, 'disposable-p2', name, undefined, true, name === 'photoshop_close_document');
-    registry = new ToolRegistry(new ToolPolicy(projects, connection));
-    for (const definition of [
-      ...createDocumentTools(connection),
-      ...createAdvancedTools(connection, (name, args) => registry.execute(name, args)),
-      ...nativeTools(connection, owned),
-    ]) if (names.has(definition.tool.name)) registry.register(definition.tool.name, definition);
-    const created = await call('photoshop_create_document', { width: 8, height: 8, resolution: 72, colorMode: 'RGB' });
-    if (!Number.isInteger(created.id)) throw new Error('CREATED_ID_GATE');
-    // Never use an existing document ID, including the closed 4051 fixture.
-    owned.add(created.id);
-    const context = await call('photoshop_get_active_context', {}, created.id);
-    if (!Number.isInteger(context.activeLayer?.id)) throw new Error('LAYER_ID_GATE');
-    const fixture = await call('native_fixture', { variant: 'mask', opaque: true }, created.id, context.activeLayer.id);
-    if (!Number.isInteger(fixture.layer_id)) throw new Error('FIXTURE_LAYER_GATE');
-    record('fixture', { document_id: created.id, ...fixture });
-
-    const pure = () => readUnscopedChannels({ connection, projects, project, owned,
-      documentId: created.id, layerId: fixture.layer_id, PhotoshopAPIFactory, toExtendScriptValue });
-    stage = 'unscoped-pure-before';
-    const before = await pure();
-    record('unscoped-pure-before', before);
-    for (const row of before.candidates) if (!row.ok) throw new Error('AM_DESCRIPTOR_READ_GATE:' + JSON.stringify(row));
-    stage = 'unscoped-pure-after';
-    const after = await pure(); // No operation or target selection between these reads.
-    record('unscoped-pure-after', after);
-    assert.deepEqual(after, before, 'AM_PURE_DESCRIPTOR_STABILITY_GATE');
-    record('BLOCKED', {
-      dependency: 'Use this top-level inventory to identify evidenced channel fields before targeted extraction; inventory is not channel identity.',
-      inventoryOnly: true, identityVerified: false,
-      pending: ['actual mask/RGB/alpha identity calibration', 'restoration followed by unscoped pure verification',
-        'independent full 64-pixel shape and RGBA calibration', 'before/after shape, RGBA and active state equality'],
-      observerRepairAllowed: false,
-    });
-    process.exitCode = 2;
-  } catch (error) {
-    record('STOP', { stage, error: String(error) });
-    process.exitCode = 1;
-  } finally {
-    try {
-      if (registry) for (const id of owned) {
-        try {
-          const result = await registry.execute('photoshop_close_document', {
-            project_id: 'selection-fill-native', task_id: 'disposable-p2', document_id: id, save: false,
-          });
-          if (result.isError) throw new Error(JSON.stringify(result));
-          owned.delete(id);
-          record('cleanup', { document_id: id, closed: true });
-        } catch (error) {
-          record('cleanup-STOP', { document_id: id, error: String(error), remaining: [...owned] });
-          process.exitCode = 1;
-          break; // Session fault/cleanup failure stops; never reset or retry COM.
-        }
-      }
-    } finally {
-      if (prepared) await writeFile(join(out, 'evidence.json'), JSON.stringify(evidence, null, 2), { flag: 'wx' });
-    }
-    console.log(JSON.stringify({ status: process.exitCode === 2 ? 'BLOCKED' : 'STOP',
-      evidence: prepared ? join(out, 'evidence.json') : null }));
-  }
-}
 
 export async function preflightWriterLock(directory = join(tmpdir(), 'photoshop-mcp-single-writer')) {
   for (const path of [directory, directory + '.recovery']) {
@@ -127,22 +14,14 @@ export async function preflightWriterLock(directory = join(tmpdir(), 'photoshop-
   }
 }
 
-export async function readUnscopedChannels({ connection, projects, project, owned,
+export async function readUnscopedChannels({ connection, owned,
   documentId, layerId, PhotoshopAPIFactory, toExtendScriptValue }) {
   if (!owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
   // inspectDocuments and the scoped read each use the current connection's
   // direct operation lock. No harness-owned lock or target-selection scope.
   const document = (await connection.inspectDocuments()).find(d => d.id === documentId);
-  if (!document) throw new Error('DOCUMENT_NOT_REGISTERED');
-  const documentPath = document.path ? await projects.documentPath(project, document.path) : undefined;
-  const recheck = async () => {
-    if (!owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
-    await projects.unchanged();
-    if (documentPath) await projects.documentPath(project, documentPath);
-    projects.grant(project, 'disposable-p2', 'native_observe', documentPath, !documentPath);
-  };
-  await recheck();
-  return connection.withScope({ recheck }, async () => {
+  if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+  return connection.withScope({}, async () => {
     const api = await new PhotoshopAPIFactory(connection).createAPI();
     return api.executeScript(channelScript(toExtendScriptValue(documentId), toExtendScriptValue(layerId)), 15000);
   });

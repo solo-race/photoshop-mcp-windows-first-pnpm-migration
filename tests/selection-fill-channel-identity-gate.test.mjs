@@ -140,27 +140,22 @@ test('exact getter script reads once, retains original error; target failure blo
   assert.equal(f.events.at(-1).data.actualOutput.getter, getter);
 });
 
-test('owned, grant/recheck and session refusal execute no readonly identity script', async () => {
-  for (const refusal of ['owned', 'grant', 'grant-recheck', 'session']) {
-    let factories = 0, executions = 0, grants = 0;
+test('unowned, missing document and session refusal execute no readonly identity script', async () => {
+  for (const refusal of ['owned', 'missing', 'session']) {
+    let factories = 0, executions = 0;
     const connection = {
-      inspectDocuments: async () => [{ id: 80 }],
-      withScope: async ({ recheck }, execute) => {
+      inspectDocuments: async () => refusal === 'missing' ? [] : [{ id: 80 }],
+      withScope: async (_scope, execute) => {
         if (refusal === 'session') throw new Error('SESSION_STOP');
-        await recheck();
         return execute();
       },
     };
-    const projects = { unchanged: async () => {}, grant() {
-      grants++;
-      if (refusal === 'grant' || (refusal === 'grant-recheck' && grants === 2)) throw new Error('GRANT_STOP');
-    } };
     class FakeFactory {
       async createAPI() { factories++; return { executeScript: async () => { executions++; } }; }
     }
-    await assert.rejects(readIdentity({ connection, projects, project: {}, getter: true,
+    await assert.rejects(readIdentity({ connection, getter: true,
       owned: new Set(refusal === 'owned' ? [] : [80]), documentId: 80, layerId: 2,
-      PhotoshopAPIFactory: FakeFactory, toExtendScriptValue: String }), /UNOWNED_DOCUMENT|GRANT_STOP|SESSION_STOP/);
+      PhotoshopAPIFactory: FakeFactory, toExtendScriptValue: String }), /UNOWNED_DOCUMENT|DOCUMENT_NOT_FOUND|SESSION_STOP/);
     assert.equal(factories, 0, refusal);
     assert.equal(executions, 0, refusal);
   }

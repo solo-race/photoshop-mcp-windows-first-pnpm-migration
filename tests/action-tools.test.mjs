@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ToolRegistry } from '../dist/core/tool-registry.js';
-import { disabledTools } from '../dist/security/tool-policy.js';
+import { disabledTools } from '../dist/core/tool-executor.js';
 
 test('removed tool names cannot be registered or invoked', async () => {
   const registry = new ToolRegistry();

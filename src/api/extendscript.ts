@@ -748,9 +748,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.applyGaussianBlur(${radius});
@@ -774,9 +774,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.applyUnSharpMask(${amount}, ${radius}, ${threshold});
@@ -798,9 +798,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     var distEnum = NoiseDistribution.${distribution};
@@ -823,9 +823,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.applyMotionBlur(${angle}, ${radius});
@@ -846,9 +846,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.adjustBrightnessContrast(${brightness}, ${contrast});
@@ -869,9 +869,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
 
     var desc = new ActionDescriptor();
@@ -904,9 +904,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.autoLevels();
@@ -925,9 +925,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.autoContrast();
@@ -946,9 +946,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.desaturate();
@@ -967,9 +967,9 @@ export const ExtendScriptSnippets = {
     }
     var layer = app.activeDocument.activeLayer;
     
-    // Layer conversion requires a separately authorized destructive operation.
+    // Convert the layer explicitly with photoshop_rasterize_layer first.
     if (layer.kind !== LayerKind.NORMAL) {
-      throw new Error('RASTERIZATION_REQUIRED: separately authorize photoshop_rasterize_layer first');
+      throw new Error('RASTERIZATION_REQUIRED: use photoshop_rasterize_layer first');
     }
     
     layer.invert();

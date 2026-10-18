@@ -2,7 +2,7 @@
 
 在仓库根运行 `pnpm test`：该命令自带 build，并默认发现 `tests/*.test.mjs`，包括迁入的十组 selection/fill 与 cscript 测试。离线通过只证明测试覆盖的离线行为，不证明 Photoshop 画面或严格 RGBA 实机通过。
 
-`tests/helpers` 包含这些测试的辅助依赖闭包；测试仍从 `../dist` 引用构建产物，helpers 从 `../../dist` 引用。普通 import 不执行实机工作。带实机入口的 helper 仅在直接执行且明确传入 `--run` 时运行；`node tests/helpers/<文件名>.mjs --help` 只显示说明。实机执行需另有明确授权，本次整理不运行 `--run`。
+`tests/helpers` 保留离线像素、通道、脚本与清理验证辅助；测试从 `../dist` 引用构建产物，helpers 从 `../../dist` 引用。依赖项目注册和任务 grant 的旧 Photoshop 实机驱动已移至被忽略的 `legacy/project-authorization/`，不再提供 `--run` / `--help` 入口。普通 import 不执行实机工作。
 
 AM channel 辅助的职责由文件区分：`selection-fill-am-channel-gate.mjs` 做字段清点，并供 operation 离线测试使用；`selection-fill-am-channel-calibration.mjs` 做已知目标字段校准与 mask 恢复；`selection-fill-channel-identity-gate.mjs` 核对通道身份。它们的诊断记录不等于完整 shape/RGBA 验收。
 

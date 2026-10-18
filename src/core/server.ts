@@ -25,8 +25,7 @@ import { createSelectionTools } from '../tools/selection-tools.js';
 import { createLayerOrderingTools } from '../tools/layer-ordering-tools.js';
 import { createAdvancedTools } from '../tools/advanced-tools.js';
 
-import { ProjectPolicy } from '../security/project-policy.js';
-import { ToolPolicy } from '../security/tool-policy.js';
+import { ToolExecutor } from './tool-executor.js';
 
 export class PhotoshopMCPServer {
   private server: Server;
@@ -44,9 +43,9 @@ export class PhotoshopMCPServer {
     );
   }
 
-  private registerTools(projects: ProjectPolicy): void {
+  private registerTools(): void {
     const connection = this.session.getConnection();
-    const registry = new ToolRegistry(new ToolPolicy(projects, connection));
+    const registry = new ToolRegistry(new ToolExecutor(connection));
     this.toolRegistry = registry;
     for (const name of ['photoshop_ping', 'photoshop_get_version']) {
       registry.register(name, {
@@ -77,7 +76,7 @@ export class PhotoshopMCPServer {
     registry.register('photoshop_get_capabilities', {
       tool: {
         name: 'photoshop_get_capabilities',
-        description: 'Inspect this runtime and registered project IDs without starting Photoshop.',
+        description: 'Inspect this runtime and available tools without starting Photoshop.',
         inputSchema: { type: 'object', properties: {} },
       },
       handler: async () => ({
@@ -85,7 +84,6 @@ export class PhotoshopMCPServer {
           {
             type: 'text',
             text: JSON.stringify({
-              projects: projects.list(),
               tools: registry.list().map((t) => t.name),
               imageDelivery: 'local-only',
               uiCapture: false,
@@ -133,19 +131,19 @@ export class PhotoshopMCPServer {
         return { isError: true, content: [{ type: 'text', text: safe }] };
       }
     });
-    // Legacy resources/prompts had no project or document scope. No implicit active-document reads.
+    // Document reads use tools with explicit IDs.
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
     this.server.setRequestHandler(ReadResourceRequestSchema, async () => {
-      throw new Error('Use project-scoped tools');
+      throw new Error('Use tools with explicit document IDs');
     });
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
     this.server.setRequestHandler(GetPromptRequestSchema, async () => {
-      throw new Error('Use project-scoped tools');
+      throw new Error('Use tools with explicit document IDs');
     });
   }
 
   async start(): Promise<void> {
-    this.registerTools(await ProjectPolicy.load());
+    this.registerTools();
     this.setupHandlers();
     process.stdin.once('end', () => {
       void this.stop();
@@ -163,7 +161,7 @@ export class PhotoshopMCPServer {
       await this.stop();
       throw error;
     }
-    this.logger.info('Project-scoped MCP connected via stdio; Photoshop has not been launched.');
+    this.logger.info('MCP connected via stdio; Photoshop has not been launched.');
   }
   stop(): Promise<void> {
     if (!this.stopping) {

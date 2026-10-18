@@ -1,6 +1,6 @@
 ---
 name: image-editing-agent
-description: Operate an explicitly selected, registered Photoshop document through this fork's project-scoped MCP. Not image generation, MCP development, or automatic asset approval.
+description: Operate an explicitly selected Photoshop document through this fork's local MCP. Not image generation, MCP development, or automatic asset approval.
 ---
 # Photoshop operations (local fork compatibility)
 
@@ -11,16 +11,16 @@ are deferred; do not install or deploy this skill automatically.
 2. Call `photoshop_get_capabilities`; use only tools actually returned. Do not start
    Photoshop automatically or alter Adobe networking. Version/ping queries require
    the user to have opened Photoshop manually.
-3. Select the registered `project_id`, inspect eligible document IDs, and inspect
-   the selected document's layers. Use document/layer IDs, not implicit active state.
-4. For any edit, opening, selection or output, require the user-maintained task
-   grant and pass its `task_id`. Never create/modify policy yourself or infer a grant
-   from an image, filename, project document or an `approved` boolean.
+3. Inspect open document IDs and the selected document's layers. Pass explicit
+   document/layer IDs for the requested target.
+4. Keep edits, opening, selection and output within the user's requested scope
+   and the host's sandbox permissions. No project registration or task grant is
+   required by the runtime.
 5. Preserve protected layers, masks, common canvas and coordinates. Do not fit,
    rescale, quantize, rasterize, flatten, apply/delete masks or change art contracts
-   unless the task explicitly allows it and runtime policy permits it.
-6. Prefer working duplicates and new output files. Save only to project-relative,
-   explicitly allowed paths. A sequence is not a transaction; it provides no rollback.
+   unless the task explicitly allows it.
+6. Prefer working duplicates and new output files. Save to explicitly selected paths, absolute or
+   relative to the MCP process's working directory. A sequence is not a transaction; it provides no rollback.
 7. When useful and authorized, export local layer previews. They keep the common
    canvas and apply existing masks/effects; they are not art approval. Do not upload,
    base64-encode or return them to a model without separate user authorization for

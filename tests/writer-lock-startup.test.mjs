@@ -30,7 +30,7 @@ async function fixture(t) {
     },
     launch(prefix = '', script = `await import(${JSON.stringify(entry)});`) {
       const env = { ...process.env, TMP: root, TEMP: root, TMPDIR: root, LOG_LEVEL: '1' };
-      delete env.PHOTOSHOP_PROJECTS_FILE;
+      env.PHOTOSHOP_PROJECTS_FILE = join(root, 'missing-legacy-projects.json');
       const child = spawn(process.execPath, ['--input-type=module', '-e', prefix + script], {
         cwd, env, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000,
       });
@@ -92,7 +92,12 @@ async function handshake(child) {
   assert.ok(initialized.result?.serverInfo);
   child.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
   child.send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.ok(Array.isArray((await child.response(2)).result?.tools));
+  const tools = (await child.response(2)).result?.tools;
+  assert.ok(Array.isArray(tools));
+  for (const tool of tools) {
+    assert.equal(Object.hasOwn(tool.inputSchema.properties, 'project_id'), false, tool.name);
+    assert.equal(Object.hasOwn(tool.inputSchema.properties, 'task_id'), false, tool.name);
+  }
 }
 
 function refused(result, code, root) {

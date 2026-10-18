@@ -1,134 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
-import { preflightWriterLock } from './selection-fill-am-channel-gate.mjs';
 import { selectedFields, actualChannelScript } from './selection-fill-am-channel-calibration.mjs';
-
-const help = 'Preparation only; default/help never imports Photoshop code or uses COM. --run: one fresh owned 8x8 mask/alpha fixture, four known targets and one getter read per target. Normal Windows permission only; existing output/lock refuses. Getter errors record BLOCKED; mismatches or cleanup failures STOP. Observer repair remains blocked pending full64 shape/RGBA.';
-
-export async function main(args = process.argv.slice(2), execute = run) {
-  if (!args.length || (args.length === 1 && ['--help', '-h'].includes(args[0]))) {
-    console.log(help);
-    return;
-  }
-  if (args.length !== 1 || args[0] !== '--run') throw new Error('Only --help or --run is accepted.');
-  await execute();
-}
-
-async function run() {
-  const root = fileURLToPath(new URL('../../', import.meta.url));
-  const out = join(root, '.tmp', 'selection-fill-channel-identity-gate-getter-first-evidence');
-  const owned = new Set(), evidence = [];
-  let prepared = false, registry, stage = 'preflight';
-  const record = (event, data) => evidence.push({ event, data });
-  const call = async (name, args = {}, documentId, layerId) => {
-    stage = name + (args.operation ? ':' + args.operation : '');
-    if (documentId !== undefined && !owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
-    const result = await registry.execute(name, {
-      project_id: 'selection-fill-native', task_id: 'disposable-p2', ...args,
-      ...(documentId === undefined ? {} : { document_id: documentId }),
-      ...(layerId === undefined ? {} : { layer_id: layerId }),
-    });
-    if (result.isError) throw new Error('TOOL_FAILED:' + name + ':' + JSON.stringify(result));
-    return result.structuredContent ?? JSON.parse(result.content.filter(c => c.type === 'text').map(c => c.text).join('\n'));
-  };
-  try {
-    await preflightWriterLock(); // Refuse; never reclaim a lock or pending state.
-    await mkdir(out); // Exclusive one-shot marker; retain it on every outcome.
-    prepared = true;
-    const [{ PhotoshopConnection }, { ProjectPolicy }, { ToolPolicy }, { ToolRegistry },
-      { createDocumentTools }, { createAdvancedTools }, { nativeTools },
-      { PhotoshopAPIFactory }, { toExtendScriptValue }] = await Promise.all([
-      import('../../dist/platform/connection.js'), import('../../dist/security/project-policy.js'),
-      import('../../dist/security/tool-policy.js'), import('../../dist/core/tool-registry.js'),
-      import('../../dist/tools/document-tools.js'), import('../../dist/tools/advanced-tools.js'),
-      import('./selection-fill-native-tools.mjs'), import('../../dist/api/photoshop-api.js'),
-      import('../../dist/core/serializer.js'),
-    ]);
-    const connection = new PhotoshopConnection();
-    const projects = await ProjectPolicy.load('D:/CodexProjects/.tmp/selection-fill-projects.json');
-    const project = projects.get('selection-fill-native');
-    const names = new Set(['photoshop_create_document', 'photoshop_close_document',
-      'photoshop_get_active_context', 'native_fixture']);
-    for (const name of [...names, 'native_observe']) if (name !== 'photoshop_get_active_context')
-      projects.grant(project, 'disposable-p2', name, undefined, true, name === 'photoshop_close_document');
-    registry = new ToolRegistry(new ToolPolicy(projects, connection));
-    for (const definition of [
-      ...createDocumentTools(connection),
-      ...createAdvancedTools(connection, (name, args) => registry.execute(name, args)),
-    ]) if (names.has(definition.tool.name)) registry.register(definition.tool.name, definition);
-    const fixtureDefinition = nativeTools(connection, owned).find(d => d.tool.name === 'native_fixture');
-    // All mutations retain native_fixture's existing grant, binding and policy scope.
-    registry.register('native_fixture', {
-      tool: { ...fixtureDefinition.tool, inputSchema: { type: 'object',
-        properties: { operation: { type: 'string', enum: ['fixture', 'roster', 'all', 'single', 'two', 'mask', 'alpha'] } },
-        required: ['operation'] } },
-      handler: async args => {
-        if (!owned.has(args.document_id)) throw new Error('UNOWNED_DOCUMENT');
-        if (args.operation === 'fixture') return fixtureDefinition.handler({ ...args, variant: 'mask', opaque: true });
-        const api = await new PhotoshopAPIFactory(connection).createAPI();
-        const result = await api.executeScript(producerScript(toExtendScriptValue(args.document_id),
-          toExtendScriptValue(args.layer_id), args.operation), 15000);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
-      },
-    });
-    const created = await call('photoshop_create_document', { width: 8, height: 8, resolution: 72, colorMode: 'RGB' });
-    if (!Number.isInteger(created.id)) throw new Error('CREATED_ID_GATE');
-    owned.add(created.id);
-    const context = await call('photoshop_get_active_context', {}, created.id);
-    if (!Number.isInteger(context.activeLayer?.id)) throw new Error('LAYER_ID_GATE');
-    record('known-input', { operation: 'fixture', variant: 'mask', opaque: true, document_id: created.id });
-    const fixture = await call('native_fixture', { operation: 'fixture' }, created.id, context.activeLayer.id);
-    if (!Number.isInteger(fixture.layer_id)) throw new Error('FIXTURE_LAYER_GATE');
-    record('fixture-output', { document_id: created.id, ...fixture, identityVerified: false });
-    const produce = async operation => {
-      record('known-input', { operation, document_id: created.id, layer_id: fixture.layer_id });
-      const output = await call('native_fixture', { operation }, created.id, fixture.layer_id);
-      record('producer-output', { operation, output });
-      return output;
-    };
-    const producer = await produce('roster');
-    const result = await verifyKnownTargets({
-      documentId: created.id, layerId: fixture.layer_id, roster: producer.roster, record,
-      read: (label, getter) => {
-        stage = label;
-        return readIdentity({ connection, projects, project, owned, documentId: created.id,
-          layerId: fixture.layer_id, PhotoshopAPIFactory, toExtendScriptValue, getter });
-      },
-      setTarget: produce,
-    });
-    record('BLOCKED', { ...result, pending: ['independent full64 selection shape/RGBA and before/after equality'] });
-    process.exitCode = 2;
-  } catch (error) {
-    const blocked = error instanceof GetterBlocked;
-    record(blocked ? 'BLOCKED' : 'STOP', { stage, error: String(error),
-      ...(blocked ? { originalGetterError: error.originalError } : {}),
-      channelIdentityGatePassed: false, identityVerified: false, observerRepairAllowed: false });
-    process.exitCode = blocked ? 2 : 1;
-  } finally {
-    try {
-      if (registry) for (const id of owned) {
-        try {
-          const result = await registry.execute('photoshop_close_document', {
-            project_id: 'selection-fill-native', task_id: 'disposable-p2', document_id: id, save: false,
-          });
-          if (result.isError) throw new Error(JSON.stringify(result));
-          owned.delete(id);
-          record('cleanup', { document_id: id, closed: true });
-        } catch (error) {
-          record('cleanup-STOP', { document_id: id, error: String(error), remaining: [...owned] });
-          process.exitCode = 1;
-          break; // No COM retry, recovery or lock cleanup after failure.
-        }
-      }
-    } finally {
-      if (prepared) await writeFile(join(out, 'evidence.json'), JSON.stringify(evidence, null, 2), { flag: 'wx' });
-    }
-    console.log(JSON.stringify({ status: process.exitCode === 2 ? 'BLOCKED' : 'STOP',
-      evidence: prepared ? join(out, 'evidence.json') : null }));
-  }
-}
 
 export class GetterBlocked extends Error {
   constructor(label, originalError) {
@@ -212,20 +83,12 @@ export async function verifyKnownTargets({ documentId, layerId, roster, read, se
 }
 
 export async function readIdentity(options) {
-  const { connection, projects, project, owned, documentId, layerId,
+  const { connection, owned, documentId, layerId,
     PhotoshopAPIFactory, toExtendScriptValue } = options;
   if (!owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
   const document = (await connection.inspectDocuments()).find(d => d.id === documentId);
-  if (!document) throw new Error('DOCUMENT_NOT_REGISTERED');
-  const documentPath = document.path ? await projects.documentPath(project, document.path) : undefined;
-  const recheck = async () => {
-    if (!owned.has(documentId)) throw new Error('UNOWNED_DOCUMENT');
-    await projects.unchanged();
-    if (documentPath) await projects.documentPath(project, documentPath);
-    projects.grant(project, 'disposable-p2', 'native_observe', documentPath, !documentPath);
-  };
-  await recheck();
-  return connection.withScope({ recheck }, async () => {
+  if (!document) throw new Error('DOCUMENT_NOT_FOUND');
+  return connection.withScope({}, async () => {
     const api = await new PhotoshopAPIFactory(connection).createAPI();
     return api.executeScript(identityReadScript(toExtendScriptValue(documentId),
       toExtendScriptValue(layerId), options.getter), 15000);
@@ -282,8 +145,4 @@ export function identityReadScript(documentId, layerId, getter = true) {
     + ';\nvar am;try{am={ok:true,value:(function(){' + actualChannelScript(documentId, layerId)
     + '})()};}catch(e){am={ok:false,error:{message:String(e.message),number:e.number===undefined?null:e.number,phase:"AM.current-channel"}};}'
     + '\nreturn {am:am,getter:getter};';
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try { await main(); } catch (error) { console.error(String(error)); process.exitCode = 1; }
 }

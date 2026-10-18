@@ -1,7 +1,7 @@
 {
   "name": "photoshop-mcp-windows-first",
   "version": "0.1.2",
-  "description": "Project-scoped Photoshop MCP with restricted tools and local-only previews",
+  "description": "Local Photoshop MCP with structured tools and local-only previews",
   "main": "dist/index.js",
   "type": "module",
   "bin": {

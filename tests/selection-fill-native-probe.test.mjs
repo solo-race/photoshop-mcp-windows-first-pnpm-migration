@@ -1,10 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  pureStateProjection, atomicBracket, mismatchLayerPairs, captureRejectedAction, verifyRejection, maskRejectionReason,
-  requireNoRawGate, NO_RAW_REQUIREMENTS, readiness, COVERAGE, EXPORT_PATHS,
-  PSD_PATHS, EVIDENCE_PATH, NO_RAW_GATE_PATH, main,
-} from './helpers/selection-fill-native-probe.mjs';
+import { pureStateProjection, atomicBracket, mismatchLayerPairs, captureRejectedAction, verifyRejection, maskRejectionReason, requireNoRawGate, NO_RAW_REQUIREMENTS } from './helpers/selection-fill-native-probe.mjs';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 function observation() {
@@ -136,8 +132,8 @@ test('rejection matching preserves the corroborated mask getter cause and reject
   assert.deepEqual(verifyRejection({ error, didThrow: true, scriptErrors: [] }, { throw: error.message }, 'static'),
     { rejection: error.message, originalReason: undefined });
   assert.throws(() => verifyRejection({ error, didThrow: true, scriptErrors: [] }, { throw: 'other' }, 'static'), thrown => thrown === error);
-  const handler = { ...captured, scriptErrors: [], handlerResult: { isError: true, content: [{ type: 'text', text: 'GRANT_DENIED' }] } };
-  assert.equal(verifyRejection(handler, { handler: 'GRANT_DENIED' }, 'grant').originalReason, 'GRANT_DENIED');
+  const handler = { ...captured, scriptErrors: [], handlerResult: { isError: true, content: [{ type: 'text', text: 'HANDLER_REJECTED' }] } };
+  assert.equal(verifyRejection(handler, { handler: 'HANDLER_REJECTED' }, 'handler').originalReason, 'HANDLER_REJECTED');
   observed.state.target.method = 'getter';
   assert.throws(() => maskRejectionReason(observed), /MASK_GETTER_CAUSE_GATE/);
 });
@@ -210,26 +206,4 @@ test('Gray and 16-bit each require an independent complete no-raw PASS', () => {
   assert.throws(() => requireNoRawGate({ ...gate, status: 'PREPARED' }), /NO_RAW_GATE_REQUIRED/);
   assert.throws(() => requireNoRawGate({ ...gate, matrixAllowed: false }), /NO_RAW_GATE_REQUIRED/);
   assert.throws(() => requireNoRawGate({ ...gate, cases: [gate.cases[0]] }), /NO_RAW_GATE_CASES/);
-});
-
-test('default, help and readiness expose bounded coverage and new paths without executing the matrix', async () => {
-  assert.deepEqual(COVERAGE, { sequentialPoints: 8, selectionFills: 4, psdReopens: 4,
-    rejections: 22, legalLayerFill: 1, canvasEdgeSelection: 1, rgbObserverChecks: 8,
-    alphaObserverChecks: 2, noRawObserverChecks: 4 });
-  assert.deepEqual(EXPORT_PATHS, Array.from({ length: 105 }, (_, i) =>
-    '.tmp/selection-fill-native/' + String(i + 40).padStart(3, '0') + '.png'));
-  assert.equal(new Set(EXPORT_PATHS).size, 105);
-  assert.deepEqual(PSD_PATHS, Array.from({ length: 4 }, (_, i) => '.tmp/selection-fill-native/case-' + i + '.psd'));
-  assert.equal(EVIDENCE_PATH, '.tmp/selection-fill-native/matrix-prepared-observer-evidence');
-  assert.equal(NO_RAW_GATE_PATH, '.tmp/selection-fill-native-no-raw-es3-gate-evidence/evidence.json');
-  const messages = [], log = console.log;
-  console.log = message => messages.push(message);
-  try { await main([]); await main(['--help']); await main(['--readiness']); }
-  finally { console.log = log; }
-  assert.equal(messages.length, 3); assert.match(messages[0], /Preparation only/);
-  assert.match(messages[1], /PNG040\.\.144/);
-  const prepared = JSON.parse(messages[2]);
-  assert.deepEqual(prepared, readiness()); assert.equal(prepared.nativeValidated, false);
-  assert.equal(prepared.status, 'PREPARED'); assert.equal(prepared.exports.count, 105);
-  assert.equal(prepared.dependency, NO_RAW_GATE_PATH);
 });

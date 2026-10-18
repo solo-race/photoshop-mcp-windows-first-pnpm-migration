@@ -4,6 +4,7 @@ yarn.lock
 
 
 # Build outputs
+legacy/
 dist/
 build/
 .taskmaster
